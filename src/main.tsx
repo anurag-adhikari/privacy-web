@@ -178,7 +178,7 @@ function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() === "u" && (event.metaKey || event.ctrlKey)) {
+      if (event.key.toLowerCase() === "u" && event.shiftKey && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         fileInputRef.current?.click();
       }
@@ -206,8 +206,12 @@ function App() {
 
   const addFiles = (files: FileList | null) => {
     if (!files?.length) return;
+    addFileArray(Array.from(files));
+  };
+
+  const addFileArray = (fileArray: File[]) => {
+    if (!fileArray.length) return;
     setIsProcessing(true);
-    const fileArray = Array.from(files);
     const firstTask = inferTaskFromFile(fileArray[0]);
     setActiveTask(firstTask);
     setSelectedActions(getDefaultActions(firstTask));
@@ -218,6 +222,28 @@ function App() {
       revealResults(nextFiles, `${nextFiles.length} cleaned file${nextFiles.length > 1 ? "s" : ""} added to results`);
     });
   };
+
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      const files = Array.from(event.clipboardData?.items ?? [])
+        .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+        .map((item, index) => {
+          const file = item.getAsFile();
+          if (!file) return null;
+          const extension = file.type.split("/")[1] || "png";
+          return new File([file], `pasted-screenshot-${index + 1}.${extension}`, { type: file.type });
+        })
+        .filter((file): file is File => Boolean(file));
+
+      if (files.length) {
+        event.preventDefault();
+        addFileArray(files);
+      }
+    };
+
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, []);
 
   const trySampleData = () => {
     setIsProcessing(true);
@@ -335,7 +361,7 @@ function App() {
           <div className="hero-actions">
             <button className="primary" onClick={() => fileInputRef.current?.click()}><Upload size={18} /> Choose files</button>
           </div>
-          <p className="privacy-note"><ShieldCheck size={16} /> Drop files anywhere. The app detects photos, screenshots, and PDFs automatically.</p>
+          <p className="privacy-note"><ShieldCheck size={16} /> Drop files anywhere or paste a copied screenshot. The app detects photos, screenshots, and PDFs automatically.</p>
           <div className="example-grid" aria-label="Before and after examples">
             {[
               ["Photo metadata", "GPS + camera data", "Fresh PNG without EXIF"],
@@ -561,7 +587,7 @@ function App() {
       </section>
 
       <div className="sticky-bar">
-        <div><Keyboard size={16} /> Press Cmd/Ctrl + U to upload</div>
+        <div><Keyboard size={16} /> Drop files anywhere or paste a screenshot</div>
         <button className="ghost" onClick={clearAll}><RotateCcw size={16} /> Reset</button>
         <button className="primary" onClick={() => fileInputRef.current?.click()}><Upload size={17} /> Clean files</button>
       </div>
