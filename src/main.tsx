@@ -29,6 +29,7 @@ type TaskId = "photos" | "screenshots" | "pdfs";
 type Status = "ready" | "processing" | "clean" | "warning";
 type SortMode = "newest" | "name" | "status";
 type PreviewMode = "before" | "after" | "compare";
+type WorkflowStep = "start" | "choose" | "review" | "export";
 type RedactionRegion = { id: number; x: number; y: number; width: number; height: number; page?: number };
 
 type Preset = {
@@ -156,6 +157,8 @@ function App() {
   const [previewFile, setPreviewFile] = useState<CleanFile | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("compare");
   const [recentIds, setRecentIds] = useState<number[]>([]);
+  const [workflowStep, setWorkflowStep] = useState<WorkflowStep>("start");
+  const [selectedActions, setSelectedActions] = useState<string[]>(["metadata"]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLElement>(null);
 
@@ -204,9 +207,14 @@ function App() {
   const addFiles = (files: FileList | null) => {
     if (!files?.length) return;
     setIsProcessing(true);
-    void Promise.all(Array.from(files).map((file, index) => makeResult(file, task.id, index))).then((nextFiles) => {
+    const fileArray = Array.from(files);
+    const firstTask = inferTaskFromFile(fileArray[0]);
+    setActiveTask(firstTask);
+    setSelectedActions(getDefaultActions(firstTask));
+    void Promise.all(fileArray.map((file, index) => makeResult(file, inferTaskFromFile(file), index))).then((nextFiles) => {
       setResults((current) => [...nextFiles, ...current]);
       setIsProcessing(false);
+      setWorkflowStep("choose");
       revealResults(nextFiles, `${nextFiles.length} cleaned file${nextFiles.length > 1 ? "s" : ""} added to results`);
     });
   };
@@ -219,6 +227,7 @@ function App() {
         ...current
       ]);
       setIsProcessing(false);
+      setWorkflowStep("choose");
       revealResults(sampleResults, `${sampleResults.length} sample files added to results`);
     });
   };
@@ -283,8 +292,18 @@ function App() {
     setPreviewFile(updatedFile);
   };
 
+  const toggleAction = (action: string) => {
+    setSelectedActions((current) => current.includes(action) ? current.filter((item) => item !== action) : [...current, action]);
+  };
+
   return (
-    <main>
+    <main
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        addFiles(event.dataTransfer.files);
+      }}
+    >
       <header className="site-header">
         <a className="brand" href="/" aria-label="Privacy Cleaner home">
           <span className="brand-mark"><ShieldCheck size={22} /></span>
@@ -309,7 +328,20 @@ function App() {
           <div className="hero-actions">
             <button className="primary" onClick={() => fileInputRef.current?.click()}><Upload size={18} /> Choose files</button>
           </div>
-          <p className="privacy-note"><ShieldCheck size={16} /> Files are handled in your browser session. Nothing is uploaded in this static demo.</p>
+          <p className="privacy-note"><ShieldCheck size={16} /> Drop files anywhere. The app detects photos, screenshots, and PDFs automatically.</p>
+          <div className="example-grid" aria-label="Before and after examples">
+            {[
+              ["Photo metadata", "GPS + camera data", "Fresh PNG without EXIF"],
+              ["Screenshot redaction", "Private token visible", "Marked area blacked out"],
+              ["PDF sharing", "All pages + metadata", "Kept pages + cleaned metadata"]
+            ].map(([title, before, after]) => (
+              <article key={title}>
+                <strong>{title}</strong>
+                <div><span>Before</span><p>{before}</p></div>
+                <div><span>After</span><p>{after}</p></div>
+              </article>
+            ))}
+          </div>
         </div>
         <div className="preview-panel" aria-label="Cleaning workflow preview">
           <div className="preview-toolbar"><span></span><span></span><span></span></div>
@@ -319,124 +351,133 @@ function App() {
         </div>
       </section>
 
-      <section className="workspace" aria-label="Privacy cleaning workspace">
-        <aside className="task-nav">
-          <p className="section-label">Tasks</p>
-          {tasks.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.id}
-                className={activeTask === item.id ? "active" : ""}
-                onClick={() => setActiveTask(item.id)}
-                aria-pressed={activeTask === item.id}
-              >
-                <Icon size={19} />
-                <span>{item.name}</span>
-              </button>
-            );
-          })}
-        </aside>
+      <section className="flow-shell" aria-label="Guided privacy cleaning flow">
+        <div className="flow-steps">
+          {[
+            ["start", "Add files"],
+            ["choose", "Choose actions"],
+            ["review", "Review and edit"],
+            ["export", "Export"]
+          ].map(([step, label], index) => (
+            <button key={step} className={workflowStep === step ? "active" : ""} onClick={() => setWorkflowStep(step as WorkflowStep)}>
+              <strong>{index + 1}</strong>
+              {label}
+            </button>
+          ))}
+        </div>
 
-        <section className="tool-surface">
+        {workflowStep === "start" && (
+          <section className="tool-surface flow-panel">
           <div className="tool-heading">
             <div>
-              <p className="section-label">{task.name}</p>
-              <h2>{task.headline}</h2>
-              <p>{task.helper}</p>
+              <p className="section-label">Start</p>
+              <h2>Add files and let Privacy Cleaner route them.</h2>
+              <p>Drop files anywhere, choose from your device, or try synthetic samples. File type detection sends images and PDFs to the right next step.</p>
             </div>
             <span className="status-badge"><Check size={15} /> Local-first flow</span>
           </div>
 
-          <div className="preset-grid">
-            {task.presets.map((item) => (
-              <button
-                key={item.id}
-                className={`preset ${preset.id === item.id ? "selected" : ""}`}
-                onClick={() => setSelectedPreset(item.id)}
-              >
-                <strong>{item.label}</strong>
-                <span>{item.description}</span>
-              </button>
-            ))}
-          </div>
-
           <div className="drop-zone" onClick={() => fileInputRef.current?.click()}>
-            <input ref={fileInputRef} type="file" multiple accept={task.accept} onChange={(event) => addFiles(event.target.files)} />
+            <input ref={fileInputRef} type="file" multiple accept="image/*,application/pdf" onChange={(event) => addFiles(event.target.files)} />
             <Upload size={28} />
             <strong>Drop files here or choose from your device</strong>
-            <span>{preset.settings.join(" • ")}</span>
+            <span>Photos, screenshots, and PDFs are sorted automatically.</span>
           </div>
 
           <div className="sample-strip" aria-label={`${task.name} sample files`}>
             <div>
               <p className="section-label">Samples</p>
-              <span>Synthetic files with fake private details for testing this workflow.</span>
+              <span>Pick a sample set to see the full guided flow.</span>
             </div>
             <div className="sample-actions">
-              {task.sampleFiles.map((sample, index) => (
-                <button key={sample.name} onClick={() => {
-                  void makeSampleResult(sample, task.id, index).then((sampleResult) => {
-                    setResults((current) => [sampleResult, ...current]);
-                    revealResults([sampleResult], `${sample.name} added to results`);
+              {tasks.map((item) => (
+                <button key={item.id} onClick={() => {
+                  setActiveTask(item.id);
+                  setSelectedActions(getDefaultActions(item.id));
+                  void Promise.all(item.sampleFiles.map((sample, index) => makeSampleResult(sample, item.id, index))).then((sampleResults) => {
+                    setResults((current) => [...sampleResults, ...current]);
+                    setWorkflowStep("choose");
+                    revealResults(sampleResults, `${item.name} samples added to results`);
                   });
                 }}>
                   <FileCheck size={16} />
-                  {sample.name}
+                  {item.name} samples
                 </button>
               ))}
-              <button className="add-all" onClick={trySampleData}>Add all samples</button>
             </div>
           </div>
+        </section>
+        )}
 
-          <button className="advanced-toggle" onClick={() => setAdvancedOpen((open) => !open)} aria-expanded={advancedOpen}>
-            <ChevronDown size={18} /> Advanced options
-          </button>
-          {advancedOpen && (
-            <div className="advanced-panel">
-              {task.advanced.map((option) => (
-                <label key={option}><input type="checkbox" /> {option}</label>
+        {workflowStep === "choose" && (
+          <section className="tool-surface flow-panel">
+            <div className="tool-heading">
+              <div>
+                <p className="section-label">Choose actions</p>
+                <h2>{task.headline}</h2>
+                <p>{task.helper}</p>
+              </div>
+              <span className="status-badge"><Check size={15} /> {results.length} file{results.length === 1 ? "" : "s"} queued</span>
+            </div>
+            <div className="action-grid">
+              {getActionOptions(task.id).map((option) => (
+                <button key={option.id} className={selectedActions.includes(option.id) ? "selected" : ""} onClick={() => toggleAction(option.id)}>
+                  <strong>{option.label}</strong>
+                  <span>{option.description}</span>
+                </button>
               ))}
             </div>
-          )}
-        </section>
+            <div className="flow-actions">
+              <button className="secondary" onClick={() => setWorkflowStep("start")}>Back</button>
+              <button className="primary" onClick={() => setWorkflowStep("review")}><Eye size={17} /> Review files</button>
+            </div>
+          </section>
+        )}
 
-        <section className="results-panel" aria-label="Cleaned files" ref={resultsRef}>
-          <div className="results-head">
-            <div>
-              <p className="section-label">Results</p>
-              <h2>Ready to review {results.length > 0 && <span className="count-badge">{results.length}</span>}</h2>
-              {results.length > 0 && <p className="results-helper">Newest files appear first. Use the eye button to review before and after.</p>}
+        {(workflowStep === "review" || workflowStep === "export") && (
+          <section className="results-panel flow-panel" aria-label="Cleaned files" ref={resultsRef}>
+            <div className="results-head">
+              <div>
+                <p className="section-label">{workflowStep === "review" ? "Review and edit" : "Export"}</p>
+                <h2>Ready to review {results.length > 0 && <span className="count-badge">{results.length}</span>}</h2>
+                {results.length > 0 && <p className="results-helper">{workflowStep === "review" ? "Open a file to inspect metadata, mark redactions, compare, and then download." : "Download cleaned copies one at a time after review."}</p>}
+              </div>
+              <button className="icon-button" onClick={clearAll} aria-label="Clear all results" title="Clear all"><X size={18} /></button>
             </div>
-            <button className="icon-button" onClick={clearAll} aria-label="Clear all results" title="Clear all"><X size={18} /></button>
-          </div>
-          <div className="filters">
-            <label><Search size={16} /><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter files" /></label>
-            <label><ArrowDownAZ size={16} /><select value={sort} onChange={(event) => setSort(event.target.value as SortMode)}><option value="newest">Newest</option><option value="name">Name</option><option value="status">Status</option></select></label>
-          </div>
-          {isProcessing && <SkeletonRows />}
-          {!isProcessing && !visibleResults.length && (
-            <div className="empty-state">
-              <Archive size={36} />
-              <strong>{filter ? "No matching files" : "No cleaned files yet"}</strong>
-              <span>{filter ? "Try a filename, status, task, or note like clean, warning, PDF, or GPS." : "Choose files or add synthetic samples to see safe copies, warnings, and download actions here."}</span>
+            <div className="filters">
+              <label><Search size={16} /><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter files" /></label>
+              <label><ArrowDownAZ size={16} /><select value={sort} onChange={(event) => setSort(event.target.value as SortMode)}><option value="newest">Newest</option><option value="name">Name</option><option value="status">Status</option></select></label>
             </div>
-          )}
-          <div className="result-list">
-            {visibleResults.map((file) => (
-              <article className={`result-row ${recentIds.includes(file.id) ? "recent" : ""}`} key={file.id}>
-                <div>
-                  <strong>{file.name}</strong>
-                  <span>{file.size} • {file.changed}</span>
-                  <small>{file.notes.join(" · ")}</small>
-                </div>
-                <span className={`pill ${file.status}`}>{file.status}</span>
-                <button className="icon-button" onClick={() => openPreview(file)} aria-label={`Preview ${file.name}`} title="Preview before and after"><Eye size={17} /></button>
-                <button className="icon-button" onClick={() => void downloadFile(file)} aria-label={`Download ${file.name}`} title="Download"><Download size={17} /></button>
-              </article>
-            ))}
-          </div>
-        </section>
+            {isProcessing && <SkeletonRows />}
+            {!isProcessing && !visibleResults.length && (
+              <div className="empty-state">
+                <Archive size={36} />
+                <strong>{filter ? "No matching files" : "No files yet"}</strong>
+                <span>{filter ? "Try a filename, status, task, or note like clean, warning, PDF, or GPS." : "Go back to Add files to start the flow."}</span>
+              </div>
+            )}
+            <div className="result-list">
+              {visibleResults.map((file) => (
+                <article className={`result-row ${recentIds.includes(file.id) ? "recent" : ""}`} key={file.id}>
+                  <div>
+                    <strong>{file.name}</strong>
+                    <span>{file.size} • {file.changed}</span>
+                    <small>{file.notes.join(" · ")}</small>
+                  </div>
+                  <span className={`pill ${file.status}`}>{file.status}</span>
+                  <button className="icon-button" onClick={() => openPreview(file)} aria-label={`Preview ${file.name}`} title="Preview before and after"><Eye size={17} /></button>
+                  <button className="icon-button" onClick={() => void downloadFile(file)} aria-label={`Download ${file.name}`} title="Download"><Download size={17} /></button>
+                </article>
+              ))}
+            </div>
+            <div className="flow-actions">
+              <button className="secondary" onClick={() => setWorkflowStep("choose")}>Back</button>
+              <button className="primary" onClick={() => setWorkflowStep(workflowStep === "review" ? "export" : "start")}>
+                {workflowStep === "review" ? "Continue to export" : "Clean more files"}
+              </button>
+            </div>
+          </section>
+        )}
       </section>
 
       {previewFile && (
@@ -556,6 +597,41 @@ function PreviewPane({ file, variant }: { file: CleanFile; variant: "before" | "
       )}
     </section>
   );
+}
+
+function getActionOptions(taskId: TaskId) {
+  if (taskId === "pdfs") {
+    return [
+      { id: "metadata", label: "Remove PDF metadata", description: "Rewrite title, author, creator, producer, dates, and keywords." },
+      { id: "redact", label: "Redact copy", description: "Review the PDF and add redaction blocks before exporting." },
+      { id: "pages", label: "Send pages", description: "Keep only selected pages for sharing." }
+    ];
+  }
+
+  if (taskId === "screenshots") {
+    return [
+      { id: "metadata", label: "Remove image metadata", description: "Re-export a clean browser-generated PNG." },
+      { id: "redact", label: "Redact areas", description: "Draw boxes over tokens, names, balances, tabs, and private text." },
+      { id: "compare", label: "Compare result", description: "Review before and after before downloading." }
+    ];
+  }
+
+  return [
+    { id: "metadata", label: "Remove location and camera data", description: "Strip GPS, EXIF, app, device, dates, and embedded thumbnails." },
+    { id: "review", label: "Review detected metadata", description: "See what was found before cleaning." },
+    { id: "compare", label: "Compare cleaned copy", description: "Confirm that metadata changed even when pixels look the same." }
+  ];
+}
+
+function getDefaultActions(taskId: TaskId) {
+  return taskId === "pdfs" ? ["metadata", "redact", "pages"] : taskId === "screenshots" ? ["metadata", "redact"] : ["metadata", "review"];
+}
+
+function inferTaskFromFile(file: File): TaskId {
+  const name = file.name.toLowerCase();
+  if (file.type.includes("pdf") || name.endsWith(".pdf")) return "pdfs";
+  if (name.includes("screenshot") || name.includes("screen") || name.includes("dashboard") || name.includes("terminal") || name.includes("chat")) return "screenshots";
+  return "photos";
 }
 
 function ChangeSummary({ file }: { file: CleanFile }) {
