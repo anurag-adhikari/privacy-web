@@ -564,6 +564,7 @@ function App() {
 
 function PreviewPane({ file, variant }: { file: CleanFile; variant: "before" | "after" }) {
   const url = variant === "before" ? file.sourceUrl : file.outputUrl;
+  const isPdf = file.fileType === "pdf";
 
   return (
     <section className="preview-pane">
@@ -579,7 +580,7 @@ function PreviewPane({ file, variant }: { file: CleanFile; variant: "before" | "
             <span>This file type can still be tracked in the results list, but the browser cannot preview it here.</span>
           </div>
         )}
-        {url && file.fileType === "pdf" && <iframe title={`${variant} ${file.name}`} src={url} />}
+        {url && isPdf && <iframe className="pdf-preview-frame" title={`${variant} ${file.name}`} src={url} />}
         {url && file.fileType === "image" && <img src={url} alt={`${variant} preview for ${file.name}`} />}
         {url && file.fileType === "other" && (
           <div className="empty-state">
@@ -805,18 +806,25 @@ function getChangeSummary(file: CleanFile) {
 
 function PdfTools({ file, onApply }: { file: CleanFile; onApply: (file: CleanFile) => void }) {
   const [pages, setPages] = useState((file.keptPages ?? makePageList(file.pageCount ?? 1)).join(","));
-  const [redactionCount, setRedactionCount] = useState(file.redactions.length);
+  const [activePage, setActivePage] = useState(file.keptPages?.[0] ?? 1);
+  const [draftRegions, setDraftRegions] = useState<RedactionRegion[]>(file.redactions);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [dragEnd, setDragEnd] = useState<{ x: number; y: number } | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const activeRegion = dragStart && dragEnd ? normalizeRegion(dragStart, dragEnd) : null;
+
+  const pointFromEvent = (event: React.PointerEvent<HTMLDivElement>) => {
+    const bounds = stageRef.current?.getBoundingClientRect();
+    if (!bounds) return { x: 0, y: 0 };
+    return {
+      x: Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)),
+      y: Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height))
+    };
+  };
 
   const apply = async () => {
     const keptPages = parsePageList(pages, file.pageCount ?? 1);
-    const redactions = Array.from({ length: redactionCount }, (_, index) => ({
-      id: Date.now() + index,
-      page: keptPages[0] ?? 1,
-      x: 0.1,
-      y: 0.75 - index * 0.1,
-      width: 0.55,
-      height: 0.06
-    }));
+    const redactions = draftRegions.filter((region) => keptPages.includes(region.page ?? activePage));
     const outputUrl = await cleanPdf(file.sourceUrl!, file.name, { keptPages, redactions });
     onApply({
       ...file,
@@ -834,17 +842,58 @@ function PdfTools({ file, onApply }: { file: CleanFile; onApply: (file: CleanFil
     <section className="edit-tools compact">
       <div>
         <p className="section-label">PDF cleanup</p>
-        <span>Choose pages to keep for Send pages. Add redaction blocks for Redact copy, then apply.</span>
+        <span>Choose pages to keep, then drag boxes on the preview for true redaction blocks.</span>
       </div>
       <label className="page-input">
         Pages to keep
-        <input value={pages} onChange={(event) => setPages(event.target.value)} placeholder="1, 3-5" />
+        <input value={pages} onChange={(event) => {
+          setPages(event.target.value);
+          const parsed = parsePageList(event.target.value, file.pageCount ?? 1);
+          if (!parsed.includes(activePage)) setActivePage(parsed[0] ?? 1);
+        }} placeholder="1, 3-5" />
       </label>
       <label className="page-input">
-        Redaction blocks
-        <input type="number" min="0" max="6" value={redactionCount} onChange={(event) => setRedactionCount(Number(event.target.value))} />
+        Page to mark
+        <select value={activePage} onChange={(event) => setActivePage(Number(event.target.value))}>
+          {parsePageList(pages, file.pageCount ?? 1).map((page) => <option value={page} key={page}>Page {page}</option>)}
+        </select>
       </label>
-      <button className="primary" onClick={() => void apply()}><FileText size={17} /> Apply PDF changes</button>
+      <div
+        ref={stageRef}
+        className="pdf-redaction-stage"
+        onPointerDown={(event) => {
+          event.currentTarget.setPointerCapture(event.pointerId);
+          const point = pointFromEvent(event);
+          setDragStart(point);
+          setDragEnd(point);
+        }}
+        onPointerMove={(event) => {
+          if (!dragStart) return;
+          setDragEnd(pointFromEvent(event));
+        }}
+        onPointerUp={(event) => {
+          if (!dragStart) return;
+          const end = pointFromEvent(event);
+          const region = normalizeRegion(dragStart, end);
+          setDragStart(null);
+          setDragEnd(null);
+          if (region.width > 0.01 && region.height > 0.01) {
+            setDraftRegions((regions) => [...regions, { ...region, page: activePage, id: Date.now() }]);
+          }
+        }}
+        onPointerCancel={() => {
+          setDragStart(null);
+          setDragEnd(null);
+        }}
+      >
+        <iframe title={`Mark page ${activePage} of ${file.name}`} src={`${file.sourceUrl}#page=${activePage}`} />
+        {draftRegions.filter((region) => region.page === activePage).map((region) => <span key={region.id} className="redaction-box" style={regionStyle(region)} />)}
+        {activeRegion && <span className="redaction-box drafting" style={regionStyle({ ...activeRegion, page: activePage, id: -1 })} />}
+      </div>
+      <div className="tool-actions">
+        <button className="secondary" onClick={() => setDraftRegions([])}>Clear marks</button>
+        <button className="primary" onClick={() => void apply()}><FileText size={17} /> Apply PDF changes</button>
+      </div>
     </section>
   );
 }
