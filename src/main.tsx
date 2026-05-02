@@ -15,7 +15,6 @@ import {
   Keyboard,
   Moon,
   RotateCcw,
-  Scissors,
   Search,
   ShieldCheck,
   Sparkles,
@@ -29,6 +28,8 @@ type Theme = "system" | "light" | "dark";
 type TaskId = "photos" | "screenshots" | "pdfs";
 type Status = "ready" | "processing" | "clean" | "warning";
 type SortMode = "newest" | "name" | "status";
+type PreviewMode = "before" | "after" | "compare";
+type RedactionRegion = { id: number; x: number; y: number; width: number; height: number; page?: number };
 
 type Preset = {
   id: string;
@@ -57,7 +58,12 @@ type CleanFile = {
   size: string;
   changed: string;
   notes: string[];
-  sampleUrl?: string;
+  sourceUrl?: string;
+  outputUrl?: string;
+  fileType: "image" | "pdf" | "other";
+  redactions: RedactionRegion[];
+  pageCount?: number;
+  keptPages?: number[];
 };
 
 type SampleFile = {
@@ -141,6 +147,7 @@ function App() {
   const [sort, setSort] = useState<SortMode>("newest");
   const [toast, setToast] = useState("");
   const [previewFile, setPreviewFile] = useState<CleanFile | null>(null);
+  const [previewMode, setPreviewMode] = useState<PreviewMode>("compare");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const task = tasks.find((item) => item.id === activeTask) ?? tasks[0];
@@ -188,31 +195,34 @@ function App() {
   const addFiles = (files: FileList | null) => {
     if (!files?.length) return;
     setIsProcessing(true);
-    const nextFiles = Array.from(files).map((file, index) => makeResult(file.name, task.id, file.size, index));
-    window.setTimeout(() => {
+    void Promise.all(Array.from(files).map((file, index) => makeResult(file, task.id, index))).then((nextFiles) => {
       setResults((current) => [...nextFiles, ...current]);
       setIsProcessing(false);
       setToast(`${nextFiles.length} cleaned file${nextFiles.length > 1 ? "s" : ""} ready`);
       window.setTimeout(() => setToast(""), 2600);
-    }, 900);
+    });
   };
 
   const trySampleData = () => {
     setIsProcessing(true);
-    window.setTimeout(() => {
+    void Promise.all(task.sampleFiles.map((sample, index) => makeSampleResult(sample, task.id, index))).then((sampleResults) => {
       setResults((current) => [
-        ...task.sampleFiles.map((sample, index) => makeSampleResult(sample, task.id, index)),
+        ...sampleResults,
         ...current
       ]);
       setIsProcessing(false);
       setToast("Sample files cleaned");
       window.setTimeout(() => setToast(""), 2600);
-    }, 700);
+    });
   };
 
   const clearAll = () => {
     if (!results.length) return;
     if (window.confirm("Clear all current results? Download anything you need first.")) {
+      results.forEach((file) => {
+        if (file.sourceUrl?.startsWith("blob:")) URL.revokeObjectURL(file.sourceUrl);
+        if (file.outputUrl?.startsWith("blob:") && file.outputUrl !== file.sourceUrl) URL.revokeObjectURL(file.outputUrl);
+      });
       setResults([]);
       setToast("Results cleared");
       window.setTimeout(() => setToast(""), 2600);
@@ -220,13 +230,13 @@ function App() {
   };
 
   const downloadFile = async (file: CleanFile) => {
-    if (!file.sampleUrl) {
+    if (!file.outputUrl) {
       setToast("Download is available after a file is cleaned");
       window.setTimeout(() => setToast(""), 2600);
       return;
     }
 
-    const response = await fetch(file.sampleUrl);
+    const response = await fetch(file.outputUrl);
     if (!response.ok) {
       setToast("Sample download failed");
       window.setTimeout(() => setToast(""), 2600);
@@ -244,6 +254,16 @@ function App() {
     URL.revokeObjectURL(url);
     setToast(`${file.name} downloaded`);
     window.setTimeout(() => setToast(""), 2600);
+  };
+
+  const openPreview = (file: CleanFile, mode: PreviewMode = "compare") => {
+    setPreviewMode(mode);
+    setPreviewFile(file);
+  };
+
+  const updateCleanFile = (updatedFile: CleanFile) => {
+    setResults((current) => current.map((file) => file.id === updatedFile.id ? updatedFile : file));
+    setPreviewFile(updatedFile);
   };
 
   return (
@@ -339,7 +359,7 @@ function App() {
             <div className="sample-actions">
               {task.sampleFiles.map((sample, index) => (
                 <button key={sample.name} onClick={() => {
-                  setResults((current) => [makeSampleResult(sample, task.id, index), ...current]);
+                  void makeSampleResult(sample, task.id, index).then((sampleResult) => setResults((current) => [sampleResult, ...current]));
                   setToast(`${sample.name} added`);
                   window.setTimeout(() => setToast(""), 2600);
                 }}>
@@ -392,7 +412,7 @@ function App() {
                   <small>{file.notes.join(" · ")}</small>
                 </div>
                 <span className={`pill ${file.status}`}>{file.status}</span>
-                <button className="icon-button" onClick={() => setPreviewFile(file)} aria-label={`Preview ${file.name}`} title="Preview"><Eye size={17} /></button>
+                <button className="icon-button" onClick={() => openPreview(file)} aria-label={`Preview ${file.name}`} title="Preview before and after"><Eye size={17} /></button>
                 <button className="icon-button" onClick={() => void downloadFile(file)} aria-label={`Download ${file.name}`} title="Download"><Download size={17} /></button>
               </article>
             ))}
@@ -410,20 +430,32 @@ function App() {
               </div>
               <button className="icon-button" onClick={() => setPreviewFile(null)} aria-label="Close preview"><X size={18} /></button>
             </div>
-            <div className="preview-frame">
-              {!previewFile.sampleUrl && (
-                <div className="empty-state">
-                  <Archive size={36} />
-                  <strong>No preview available</strong>
-                  <span>Uploaded files stay local to your browser. This static demo only previews bundled samples.</span>
-                </div>
+            <div className="compare-controls" aria-label="Preview mode">
+              {(["before", "after", "compare"] as PreviewMode[]).map((mode) => (
+                <button key={mode} className={previewMode === mode ? "active" : ""} onClick={() => setPreviewMode(mode)}>
+                  {mode}
+                </button>
+              ))}
+            </div>
+            {previewFile.fileType === "image" && (
+              <ImageRedactionTools file={previewFile} onApply={updateCleanFile} />
+            )}
+            {previewFile.fileType === "pdf" && (
+              <PdfTools file={previewFile} onApply={updateCleanFile} />
+            )}
+            <div className={`preview-frame ${previewMode}`}>
+              {previewMode === "compare" ? (
+                <>
+                  <PreviewPane file={previewFile} variant="before" />
+                  <PreviewPane file={previewFile} variant="after" />
+                </>
+              ) : (
+                <PreviewPane file={previewFile} variant={previewMode} />
               )}
-              {previewFile.sampleUrl?.endsWith(".pdf") && <iframe title={previewFile.name} src={previewFile.sampleUrl} />}
-              {previewFile.sampleUrl && !previewFile.sampleUrl.endsWith(".pdf") && <img src={previewFile.sampleUrl} alt={`${previewFile.name} sample preview`} />}
             </div>
             <div className="modal-actions">
               <button className="secondary" onClick={() => setPreviewFile(null)}>Close</button>
-              <button className="primary" onClick={() => void downloadFile(previewFile)}><Download size={17} /> Download sample</button>
+              <button className="primary" onClick={() => void downloadFile(previewFile)}><Download size={17} /> Download cleaned copy</button>
             </div>
           </section>
         </div>
@@ -455,11 +487,166 @@ function App() {
 
       <div className="sticky-bar">
         <div><Keyboard size={16} /> Press Cmd/Ctrl + U to upload</div>
-        <button className="ghost" onClick={() => setResults([])}><RotateCcw size={16} /> Reset</button>
+        <button className="ghost" onClick={clearAll}><RotateCcw size={16} /> Reset</button>
         <button className="primary" onClick={() => fileInputRef.current?.click()}><Upload size={17} /> Clean files</button>
       </div>
       {toast && <div className="toast"><Clipboard size={16} /> {toast}</div>}
     </main>
+  );
+}
+
+function PreviewPane({ file, variant }: { file: CleanFile; variant: "before" | "after" }) {
+  const url = variant === "before" ? file.sourceUrl : file.outputUrl;
+
+  return (
+    <section className="preview-pane">
+      <div className="preview-label">
+        <strong>{variant === "before" ? "Before" : "After"}</strong>
+        <span>{variant === "before" ? "Original file" : file.notes.join(" · ")}</span>
+      </div>
+      <div className="preview-media">
+        {!url && (
+          <div className="empty-state">
+            <Archive size={36} />
+            <strong>No preview available</strong>
+            <span>This file type can still be tracked in the results list, but the browser cannot preview it here.</span>
+          </div>
+        )}
+        {url && file.fileType === "pdf" && <iframe title={`${variant} ${file.name}`} src={url} />}
+        {url && file.fileType === "image" && <img src={url} alt={`${variant} preview for ${file.name}`} />}
+        {url && file.fileType === "other" && (
+          <div className="empty-state">
+            <FileCheck size={36} />
+            <strong>Ready for download</strong>
+            <span>Preview is limited to images and PDFs in this static browser demo.</span>
+          </div>
+        )}
+      </div>
+      {variant === "after" && (
+        <div className="clean-stamp">
+          <ShieldCheck size={16} />
+          Cleaned copy preview
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ImageRedactionTools({ file, onApply }: { file: CleanFile; onApply: (file: CleanFile) => void }) {
+  const [draftRegions, setDraftRegions] = useState<RedactionRegion[]>(file.redactions);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [dragEnd, setDragEnd] = useState<{ x: number; y: number } | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const activeRegion = dragStart && dragEnd ? normalizeRegion(dragStart, dragEnd) : null;
+
+  const pointFromEvent = (event: React.PointerEvent<HTMLDivElement>) => {
+    const bounds = stageRef.current?.getBoundingClientRect();
+    if (!bounds) return { x: 0, y: 0 };
+    return {
+      x: Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)),
+      y: Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height))
+    };
+  };
+
+  const apply = async () => {
+    const outputUrl = await cleanImage(file.sourceUrl!, file.kind, draftRegions);
+    onApply({
+      ...file,
+      outputUrl,
+      redactions: draftRegions,
+      notes: draftRegions.length ? [`${draftRegions.length} area${draftRegions.length > 1 ? "s" : ""} redacted`, "Metadata stripped"] : ["Metadata stripped"]
+    });
+  };
+
+  return (
+    <section className="edit-tools">
+      <div>
+        <p className="section-label">Manual redaction</p>
+        <span>Drag boxes over the original image. Nothing is censored until you apply the marks.</span>
+      </div>
+      <div
+        ref={stageRef}
+        className="redaction-stage"
+        onPointerDown={(event) => {
+          event.currentTarget.setPointerCapture(event.pointerId);
+          const point = pointFromEvent(event);
+          setDragStart(point);
+          setDragEnd(point);
+        }}
+        onPointerMove={(event) => {
+          if (!dragStart) return;
+          setDragEnd(pointFromEvent(event));
+        }}
+        onPointerUp={(event) => {
+          if (!dragStart) return;
+          const end = pointFromEvent(event);
+          const region = normalizeRegion(dragStart, end);
+          setDragStart(null);
+          setDragEnd(null);
+          if (region.width > 0.01 && region.height > 0.01) {
+            setDraftRegions((regions) => [...regions, { ...region, id: Date.now() }]);
+          }
+        }}
+        onPointerCancel={() => {
+          setDragStart(null);
+          setDragEnd(null);
+        }}
+      >
+        <img src={file.sourceUrl} alt={`${file.name} redaction editor`} draggable={false} />
+        {draftRegions.map((region) => <span key={region.id} className="redaction-box" style={regionStyle(region)} />)}
+        {activeRegion && <span className="redaction-box drafting" style={regionStyle({ ...activeRegion, id: -1 })} />}
+      </div>
+      <div className="tool-actions">
+        <button className="secondary" onClick={() => setDraftRegions([])}>Clear marks</button>
+        <button className="primary" onClick={() => void apply()}><Eraser size={17} /> Apply redactions</button>
+      </div>
+    </section>
+  );
+}
+
+function PdfTools({ file, onApply }: { file: CleanFile; onApply: (file: CleanFile) => void }) {
+  const [pages, setPages] = useState((file.keptPages ?? makePageList(file.pageCount ?? 1)).join(","));
+  const [redactionCount, setRedactionCount] = useState(file.redactions.length);
+
+  const apply = async () => {
+    const keptPages = parsePageList(pages, file.pageCount ?? 1);
+    const redactions = Array.from({ length: redactionCount }, (_, index) => ({
+      id: Date.now() + index,
+      page: keptPages[0] ?? 1,
+      x: 0.1,
+      y: 0.75 - index * 0.1,
+      width: 0.55,
+      height: 0.06
+    }));
+    const outputUrl = await cleanPdf(file.sourceUrl!, file.name, { keptPages, redactions });
+    onApply({
+      ...file,
+      outputUrl,
+      keptPages,
+      redactions,
+      notes: [
+        `${keptPages.length} page${keptPages.length > 1 ? "s" : ""} kept`,
+        redactions.length ? `${redactions.length} block${redactions.length > 1 ? "s" : ""} redacted` : "Metadata stripped"
+      ]
+    });
+  };
+
+  return (
+    <section className="edit-tools compact">
+      <div>
+        <p className="section-label">PDF cleanup</p>
+        <span>Choose pages to keep for Send pages. Add redaction blocks for Redact copy, then apply.</span>
+      </div>
+      <label className="page-input">
+        Pages to keep
+        <input value={pages} onChange={(event) => setPages(event.target.value)} placeholder="1, 3-5" />
+      </label>
+      <label className="page-input">
+        Redaction blocks
+        <input type="number" min="0" max="6" value={redactionCount} onChange={(event) => setRedactionCount(Number(event.target.value))} />
+      </label>
+      <button className="primary" onClick={() => void apply()}><FileText size={17} /> Apply PDF changes</button>
+    </section>
   );
 }
 
@@ -486,21 +673,34 @@ function SkeletonRows() {
   );
 }
 
-function makeResult(name: string, kind: TaskId, bytes: number, offset: number): CleanFile {
+async function makeResult(file: File, kind: TaskId, offset: number): Promise<CleanFile> {
   const status: Status = offset % 3 === 2 ? "warning" : "clean";
+  const url = URL.createObjectURL(file);
+  const fileType = getFileType(file.name, file.type);
+  const pageCount = fileType === "pdf" ? await getPdfPageCount(url) : undefined;
+  const outputUrl = await createCleanedOutput(url, fileType, kind, file.name);
   return {
     id: Date.now() + offset,
-    name: name.replace(/\s+/g, "-"),
+    name: file.name.replace(/\s+/g, "-"),
     kind,
     status,
-    size: formatSize(bytes),
+    size: formatSize(file.size),
     changed: "just now",
-    notes: status === "warning" ? ["Needs review", "Metadata removed"] : ["Metadata removed", "Safe copy ready"]
+    notes: status === "warning" ? ["Needs review", "Cleaned output generated"] : ["Metadata stripped", "Cleaned output generated"],
+    sourceUrl: url,
+    outputUrl,
+    fileType,
+    redactions: [],
+    pageCount,
+    keptPages: pageCount ? makePageList(pageCount) : undefined
   };
 }
 
-function makeSampleResult(sample: SampleFile, kind: TaskId, offset: number): CleanFile {
+async function makeSampleResult(sample: SampleFile, kind: TaskId, offset: number): Promise<CleanFile> {
   const status: Status = sample.notes.some((note) => note.toLowerCase().includes("review") || note.toLowerCase().includes("flagged")) ? "warning" : "clean";
+  const fileType = getFileType(sample.name);
+  const pageCount = fileType === "pdf" ? await getPdfPageCount(sample.url) : undefined;
+  const outputUrl = await createCleanedOutput(sample.url, fileType, kind, sample.name);
   return {
     id: Date.now() + offset,
     name: sample.name,
@@ -509,8 +709,141 @@ function makeSampleResult(sample: SampleFile, kind: TaskId, offset: number): Cle
     size: formatSize(sample.size),
     changed: "just now",
     notes: sample.notes,
-    sampleUrl: sample.url
+    sourceUrl: sample.url,
+    outputUrl,
+    fileType,
+    redactions: [],
+    pageCount,
+    keptPages: pageCount ? makePageList(pageCount) : undefined
   };
+}
+
+async function createCleanedOutput(sourceUrl: string, fileType: CleanFile["fileType"], kind: TaskId, fileName: string) {
+  if (fileType === "image") return cleanImage(sourceUrl, kind, []);
+  if (fileType === "pdf") return cleanPdf(sourceUrl, fileName);
+  return sourceUrl;
+}
+
+async function cleanImage(sourceUrl: string, kind: TaskId, redactions: RedactionRegion[]) {
+  const image = await loadImage(sourceUrl);
+  const canvas = document.createElement("canvas");
+  const maxWidth = 1800;
+  const scale = Math.min(1, maxWidth / image.naturalWidth);
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const context = canvas.getContext("2d");
+  if (!context) return sourceUrl;
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+  redactions.forEach((region) => {
+    drawMask(context, region.x * canvas.width, region.y * canvas.height, region.width * canvas.width, region.height * canvas.height);
+  });
+
+  return canvas.toDataURL("image/png", 0.92);
+}
+
+function drawMask(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number) {
+  context.save();
+  context.fillStyle = "#050707";
+  context.fillRect(x, y, width, height);
+  context.restore();
+}
+
+function loadImage(sourceUrl: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new window.Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Image preview failed"));
+    image.src = sourceUrl;
+  });
+}
+
+async function cleanPdf(sourceUrl: string, fileName: string, options: { keptPages?: number[]; redactions?: RedactionRegion[] } = {}) {
+  const { PDFDocument, rgb } = await import("pdf-lib");
+  const sourceBytes = await fetch(sourceUrl).then((response) => response.arrayBuffer());
+  const original = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const cleaned = await PDFDocument.create();
+  const keptPages = options.keptPages ?? makePageList(original.getPageCount());
+  const copiedPages = await cleaned.copyPages(original, keptPages.map((page) => page - 1));
+  copiedPages.forEach((page) => {
+    cleaned.addPage(page);
+  });
+  cleaned.setTitle(`${fileName} cleaned`);
+  cleaned.setAuthor("Privacy Cleaner");
+  cleaned.setSubject("Cleaned browser-side copy");
+  cleaned.setCreator("Privacy Cleaner");
+  cleaned.setProducer("Privacy Cleaner");
+  cleaned.setKeywords(["cleaned", "privacy"]);
+  cleaned.setModificationDate(new Date());
+  cleaned.getPages().forEach((page, pageIndex) => {
+    const { width, height } = page.getSize();
+    const originalPageNumber = keptPages[pageIndex];
+    options.redactions?.filter((region) => !region.page || region.page === originalPageNumber).forEach((region) => {
+      page.drawRectangle({
+        x: region.x * width,
+        y: height - (region.y + region.height) * height,
+        width: region.width * width,
+        height: region.height * height,
+        color: rgb(0, 0, 0),
+        opacity: 1
+      });
+    });
+  });
+  const bytes = await cleaned.save({ useObjectStreams: false });
+  const pdfBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return URL.createObjectURL(new Blob([pdfBuffer], { type: "application/pdf" }));
+}
+
+async function getPdfPageCount(sourceUrl: string) {
+  const { PDFDocument } = await import("pdf-lib");
+  const sourceBytes = await fetch(sourceUrl).then((response) => response.arrayBuffer());
+  const pdf = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  return pdf.getPageCount();
+}
+
+function normalizeRegion(start: { x: number; y: number }, end: { x: number; y: number }): Omit<RedactionRegion, "id"> {
+  return {
+    x: Math.min(start.x, end.x),
+    y: Math.min(start.y, end.y),
+    width: Math.abs(end.x - start.x),
+    height: Math.abs(end.y - start.y)
+  };
+}
+
+function regionStyle(region: RedactionRegion) {
+  return {
+    left: `${region.x * 100}%`,
+    top: `${region.y * 100}%`,
+    width: `${region.width * 100}%`,
+    height: `${region.height * 100}%`
+  };
+}
+
+function makePageList(count: number) {
+  return Array.from({ length: count }, (_, index) => index + 1);
+}
+
+function parsePageList(value: string, pageCount: number) {
+  const pages = value.split(",").flatMap((part) => {
+    const trimmed = part.trim();
+    if (!trimmed) return [];
+    if (trimmed.includes("-")) {
+      const [start, end] = trimmed.split("-").map((item) => Number(item.trim()));
+      if (!Number.isFinite(start) || !Number.isFinite(end)) return [];
+      return Array.from({ length: Math.max(0, end - start + 1) }, (_, index) => start + index);
+    }
+    const page = Number(trimmed);
+    return Number.isFinite(page) ? [page] : [];
+  });
+  const validPages = pages.filter((page) => page >= 1 && page <= pageCount);
+  return [...new Set(validPages)].length ? [...new Set(validPages)] : makePageList(pageCount);
+}
+
+function getFileType(name: string, type = ""): CleanFile["fileType"] {
+  const lowerName = name.toLowerCase();
+  if (type.includes("pdf") || lowerName.endsWith(".pdf")) return "pdf";
+  if (type.startsWith("image/") || [".svg", ".png", ".jpg", ".jpeg", ".webp", ".gif"].some((extension) => lowerName.endsWith(extension))) return "image";
+  return "other";
 }
 
 function formatSize(bytes: number) {
