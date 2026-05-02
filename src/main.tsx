@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  AlertTriangle,
   Archive,
   ArrowDownAZ,
   Check,
@@ -22,7 +21,6 @@ import {
   Sparkles,
   Sun,
   Upload,
-  Wand2,
   X
 } from "lucide-react";
 import "./styles.css";
@@ -48,7 +46,7 @@ type Task = {
   icon: typeof Image;
   presets: Preset[];
   advanced: string[];
-  sampleFiles: string[];
+  sampleFiles: SampleFile[];
 };
 
 type CleanFile = {
@@ -58,6 +56,14 @@ type CleanFile = {
   status: Status;
   size: string;
   changed: string;
+  notes: string[];
+  sampleUrl?: string;
+};
+
+type SampleFile = {
+  name: string;
+  size: number;
+  url: string;
   notes: string[];
 };
 
@@ -75,7 +81,11 @@ const tasks: Task[] = [
       { id: "archive-photo", label: "Keep original", description: "Export a safe copy without changing names.", settings: ["Preserve filename", "Add clean suffix", "Keep color profile"] }
     ],
     advanced: ["Remove embedded thumbnails", "Flatten color profile", "Normalize modified date"],
-    sampleFiles: ["IMG_2841.jpg", "apartment-tour.heic", "passport-scan.png"]
+    sampleFiles: [
+      { name: "vacation-location.svg", size: 184000, url: "/samples/vacation-location.svg", notes: ["GPS removed", "Camera details removed"] },
+      { name: "apartment-tour.svg", size: 222000, url: "/samples/apartment-tour.svg", notes: ["Location hints flagged", "Metadata removed"] },
+      { name: "passport-scan.svg", size: 196000, url: "/samples/passport-scan.svg", notes: ["Needs review", "Metadata removed"] }
+    ]
   },
   {
     id: "screenshots",
@@ -90,7 +100,11 @@ const tasks: Task[] = [
       { id: "support", label: "Support ticket", description: "Leave issue visible while hiding personal context.", settings: ["Blur sidebars", "Crop extra screen", "Export PNG"] }
     ],
     advanced: ["Use pixelation instead of blur", "Crop before export", "Add reviewed watermark"],
-    sampleFiles: ["billing-dashboard.png", "customer-chat.jpg", "terminal-error.webp"]
+    sampleFiles: [
+      { name: "billing-dashboard.svg", size: 310000, url: "/samples/billing-dashboard.svg", notes: ["Account numbers hidden", "Metadata removed"] },
+      { name: "customer-chat.svg", size: 276000, url: "/samples/customer-chat.svg", notes: ["Names blurred", "Email-like text hidden"] },
+      { name: "terminal-error.svg", size: 142000, url: "/samples/terminal-error.svg", notes: ["Token pattern flagged", "Metadata removed"] }
+    ]
   },
   {
     id: "pdfs",
@@ -105,7 +119,11 @@ const tasks: Task[] = [
       { id: "send-page", label: "Send pages", description: "Keep only selected pages for a smaller share.", settings: ["Remove unused pages", "Compress assets", "Rename export"] }
     ],
     advanced: ["Remove JavaScript", "Strip attachments", "Linearize for web preview"],
-    sampleFiles: ["lease-agreement.pdf", "medical-claim.pdf", "board-packet.pdf"]
+    sampleFiles: [
+      { name: "lease-agreement.pdf", size: 420000, url: "/samples/lease-agreement.pdf", notes: ["Metadata removed", "Safe copy ready"] },
+      { name: "medical-claim.pdf", size: 540000, url: "/samples/medical-claim.pdf", notes: ["Metadata removed", "Safe copy ready"] },
+      { name: "board-packet.pdf", size: 660000, url: "/samples/board-packet.pdf", notes: ["Needs review", "Metadata removed"] }
+    ]
   }
 ];
 
@@ -122,6 +140,7 @@ function App() {
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortMode>("newest");
   const [toast, setToast] = useState("");
+  const [previewFile, setPreviewFile] = useState<CleanFile | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const task = tasks.find((item) => item.id === activeTask) ?? tasks[0];
@@ -153,8 +172,12 @@ function App() {
   }, []);
 
   const visibleResults = useMemo(() => {
+    const query = filter.trim().toLowerCase();
     return results
-      .filter((file) => file.name.toLowerCase().includes(filter.toLowerCase()) || file.kind === activeTask)
+      .filter((file) => {
+        if (!query) return true;
+        return [file.name, file.kind, file.status, ...file.notes].join(" ").toLowerCase().includes(query);
+      })
       .sort((a, b) => {
         if (sort === "name") return a.name.localeCompare(b.name);
         if (sort === "status") return a.status.localeCompare(b.status);
@@ -178,7 +201,7 @@ function App() {
     setIsProcessing(true);
     window.setTimeout(() => {
       setResults((current) => [
-        ...task.sampleFiles.map((name, index) => makeResult(name, task.id, 420000 + index * 120000, index)),
+        ...task.sampleFiles.map((sample, index) => makeSampleResult(sample, task.id, index)),
         ...current
       ]);
       setIsProcessing(false);
@@ -194,6 +217,33 @@ function App() {
       setToast("Results cleared");
       window.setTimeout(() => setToast(""), 2600);
     }
+  };
+
+  const downloadFile = async (file: CleanFile) => {
+    if (!file.sampleUrl) {
+      setToast("Download is available after a file is cleaned");
+      window.setTimeout(() => setToast(""), 2600);
+      return;
+    }
+
+    const response = await fetch(file.sampleUrl);
+    if (!response.ok) {
+      setToast("Sample download failed");
+      window.setTimeout(() => setToast(""), 2600);
+      return;
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = file.name;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setToast(`${file.name} downloaded`);
+    window.setTimeout(() => setToast(""), 2600);
   };
 
   return (
@@ -221,7 +271,6 @@ function App() {
           <p className="lede">Privacy Cleaner gives every common sharing task one calm place: strip metadata, blur sensitive screen areas, redact PDFs, remove pages, and export safe copies.</p>
           <div className="hero-actions">
             <button className="primary" onClick={() => fileInputRef.current?.click()}><Upload size={18} /> Choose files</button>
-            <button className="secondary" onClick={trySampleData}><Wand2 size={18} /> Try sample data</button>
           </div>
           <p className="privacy-note"><ShieldCheck size={16} /> Files are handled in your browser session. Nothing is uploaded in this static demo.</p>
         </div>
@@ -282,6 +331,26 @@ function App() {
             <span>{preset.settings.join(" • ")}</span>
           </div>
 
+          <div className="sample-strip" aria-label={`${task.name} sample files`}>
+            <div>
+              <p className="section-label">Samples</p>
+              <span>Synthetic files with fake private details for testing this workflow.</span>
+            </div>
+            <div className="sample-actions">
+              {task.sampleFiles.map((sample, index) => (
+                <button key={sample.name} onClick={() => {
+                  setResults((current) => [makeSampleResult(sample, task.id, index), ...current]);
+                  setToast(`${sample.name} added`);
+                  window.setTimeout(() => setToast(""), 2600);
+                }}>
+                  <FileCheck size={16} />
+                  {sample.name}
+                </button>
+              ))}
+              <button className="add-all" onClick={trySampleData}>Add all samples</button>
+            </div>
+          </div>
+
           <button className="advanced-toggle" onClick={() => setAdvancedOpen((open) => !open)} aria-expanded={advancedOpen}>
             <ChevronDown size={18} /> Advanced options
           </button>
@@ -310,8 +379,8 @@ function App() {
           {!isProcessing && !visibleResults.length && (
             <div className="empty-state">
               <Archive size={36} />
-              <strong>No cleaned files yet</strong>
-              <span>Choose files or try sample data to see safe copies, warnings, and download actions here.</span>
+              <strong>{filter ? "No matching files" : "No cleaned files yet"}</strong>
+              <span>{filter ? "Try a filename, status, task, or note like clean, warning, PDF, or GPS." : "Choose files or add synthetic samples to see safe copies, warnings, and download actions here."}</span>
             </div>
           )}
           <div className="result-list">
@@ -323,13 +392,42 @@ function App() {
                   <small>{file.notes.join(" · ")}</small>
                 </div>
                 <span className={`pill ${file.status}`}>{file.status}</span>
-                <button className="icon-button" title="Preview"><Eye size={17} /></button>
-                <button className="icon-button" title="Download"><Download size={17} /></button>
+                <button className="icon-button" onClick={() => setPreviewFile(file)} aria-label={`Preview ${file.name}`} title="Preview"><Eye size={17} /></button>
+                <button className="icon-button" onClick={() => void downloadFile(file)} aria-label={`Download ${file.name}`} title="Download"><Download size={17} /></button>
               </article>
             ))}
           </div>
         </section>
       </section>
+
+      {previewFile && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setPreviewFile(null)}>
+          <section className="preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${previewFile.name}`} onClick={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <p className="section-label">Preview</p>
+                <h2>{previewFile.name}</h2>
+              </div>
+              <button className="icon-button" onClick={() => setPreviewFile(null)} aria-label="Close preview"><X size={18} /></button>
+            </div>
+            <div className="preview-frame">
+              {!previewFile.sampleUrl && (
+                <div className="empty-state">
+                  <Archive size={36} />
+                  <strong>No preview available</strong>
+                  <span>Uploaded files stay local to your browser. This static demo only previews bundled samples.</span>
+                </div>
+              )}
+              {previewFile.sampleUrl?.endsWith(".pdf") && <iframe title={previewFile.name} src={previewFile.sampleUrl} />}
+              {previewFile.sampleUrl && !previewFile.sampleUrl.endsWith(".pdf") && <img src={previewFile.sampleUrl} alt={`${previewFile.name} sample preview`} />}
+            </div>
+            <div className="modal-actions">
+              <button className="secondary" onClick={() => setPreviewFile(null)}>Close</button>
+              <button className="primary" onClick={() => void downloadFile(previewFile)}><Download size={17} /> Download sample</button>
+            </div>
+          </section>
+        </div>
+      )}
 
       <section className="trust-grid">
         {[
@@ -398,6 +496,20 @@ function makeResult(name: string, kind: TaskId, bytes: number, offset: number): 
     size: formatSize(bytes),
     changed: "just now",
     notes: status === "warning" ? ["Needs review", "Metadata removed"] : ["Metadata removed", "Safe copy ready"]
+  };
+}
+
+function makeSampleResult(sample: SampleFile, kind: TaskId, offset: number): CleanFile {
+  const status: Status = sample.notes.some((note) => note.toLowerCase().includes("review") || note.toLowerCase().includes("flagged")) ? "warning" : "clean";
+  return {
+    id: Date.now() + offset,
+    name: sample.name,
+    kind,
+    status,
+    size: formatSize(sample.size),
+    changed: "just now",
+    notes: sample.notes,
+    sampleUrl: sample.url
   };
 }
 

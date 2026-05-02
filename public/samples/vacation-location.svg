@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
+  <rect width="1200" height="800" fill="#eaf4f0"/>
+  <rect x="80" y="70" width="1040" height="620" rx="28" fill="#fffdf8" stroke="#b9c9c2" stroke-width="4"/>
+  <rect x="130" y="130" width="940" height="420" rx="18" fill="#8ac6d0"/>
+  <circle cx="280" cy="245" r="62" fill="#f3c969"/>
+  <path d="M130 550 380 360 565 505 725 390 1070 550Z" fill="#116466"/>
+  <rect x="130" y="590" width="360" height="34" rx="17" fill="#203432"/>
+  <text x="150" y="614" font-family="Arial" font-size="22" fill="#f7f3ea">GPS: 37.7749, -122.4194</text>
+  <text x="130" y="745" font-family="Arial" font-size="32" font-weight="700" fill="#121516">Synthetic photo sample</text>
+</svg>
