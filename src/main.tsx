@@ -64,6 +64,7 @@ type CleanFile = {
   redactions: RedactionRegion[];
   pageCount?: number;
   keptPages?: number[];
+  metadata: MetadataItem[];
 };
 
 type SampleFile = {
@@ -71,6 +72,12 @@ type SampleFile = {
   size: number;
   url: string;
   notes: string[];
+  metadata: MetadataItem[];
+};
+
+type MetadataItem = {
+  label: string;
+  value: string;
 };
 
 const tasks: Task[] = [
@@ -88,9 +95,9 @@ const tasks: Task[] = [
     ],
     advanced: ["Remove embedded thumbnails", "Flatten color profile", "Normalize modified date"],
     sampleFiles: [
-      { name: "vacation-location.svg", size: 184000, url: "/samples/vacation-location.svg", notes: ["GPS removed", "Camera details removed"] },
-      { name: "apartment-tour.svg", size: 222000, url: "/samples/apartment-tour.svg", notes: ["Location hints flagged", "Metadata removed"] },
-      { name: "passport-scan.svg", size: 196000, url: "/samples/passport-scan.svg", notes: ["Needs review", "Metadata removed"] }
+      { name: "vacation-location.svg", size: 184000, url: "/samples/vacation-location.svg", notes: ["GPS removed", "Camera details removed"], metadata: [{ label: "GPS latitude", value: "37.7749" }, { label: "GPS longitude", value: "-122.4194" }, { label: "Camera", value: "SamplePhone 14" }, { label: "Captured", value: "2026-04-12 09:42" }] },
+      { name: "apartment-tour.svg", size: 222000, url: "/samples/apartment-tour.svg", notes: ["Location hints flagged", "Metadata removed"], metadata: [{ label: "Creator app", value: "Demo Camera" }, { label: "Original filename", value: "home-tour-unit-4b.svg" }, { label: "Modified", value: "2026-04-20 18:05" }] },
+      { name: "passport-scan.svg", size: 196000, url: "/samples/passport-scan.svg", notes: ["Needs review", "Metadata removed"], metadata: [{ label: "Scanner", value: "OfficeScan Demo" }, { label: "Author", value: "Sample User" }, { label: "Created", value: "2026-03-02 11:10" }] }
     ]
   },
   {
@@ -107,9 +114,9 @@ const tasks: Task[] = [
     ],
     advanced: ["Use pixelation instead of blur", "Crop before export", "Add reviewed watermark"],
     sampleFiles: [
-      { name: "billing-dashboard.svg", size: 310000, url: "/samples/billing-dashboard.svg", notes: ["Account numbers hidden", "Metadata removed"] },
-      { name: "customer-chat.svg", size: 276000, url: "/samples/customer-chat.svg", notes: ["Names blurred", "Email-like text hidden"] },
-      { name: "terminal-error.svg", size: 142000, url: "/samples/terminal-error.svg", notes: ["Token pattern flagged", "Metadata removed"] }
+      { name: "billing-dashboard.svg", size: 310000, url: "/samples/billing-dashboard.svg", notes: ["Account numbers hidden", "Metadata removed"], metadata: [{ label: "Browser title", value: "Billing - Demo Workspace" }, { label: "Screenshot app", value: "System Capture" }, { label: "Created", value: "2026-04-28 14:31" }] },
+      { name: "customer-chat.svg", size: 276000, url: "/samples/customer-chat.svg", notes: ["Names blurred", "Email-like text hidden"], metadata: [{ label: "Window title", value: "Support chat with sample@example.com" }, { label: "Source app", value: "Demo Browser" }] },
+      { name: "terminal-error.svg", size: 142000, url: "/samples/terminal-error.svg", notes: ["Token pattern flagged", "Metadata removed"], metadata: [{ label: "Shell", value: "zsh" }, { label: "Working directory", value: "/demo/private-project" }, { label: "Captured", value: "2026-05-01 16:55" }] }
     ]
   },
   {
@@ -126,9 +133,9 @@ const tasks: Task[] = [
     ],
     advanced: ["Remove JavaScript", "Strip attachments", "Linearize for web preview"],
     sampleFiles: [
-      { name: "lease-agreement.pdf", size: 420000, url: "/samples/lease-agreement.pdf", notes: ["Metadata removed", "Safe copy ready"] },
-      { name: "medical-claim.pdf", size: 540000, url: "/samples/medical-claim.pdf", notes: ["Metadata removed", "Safe copy ready"] },
-      { name: "board-packet.pdf", size: 660000, url: "/samples/board-packet.pdf", notes: ["Needs review", "Metadata removed"] }
+      { name: "lease-agreement.pdf", size: 420000, url: "/samples/lease-agreement.pdf", notes: ["Metadata removed", "Safe copy ready"], metadata: [{ label: "Title", value: "Synthetic Lease Agreement" }, { label: "Author", value: "Example Property Manager" }, { label: "Producer", value: "Demo PDF Tool" }] },
+      { name: "medical-claim.pdf", size: 540000, url: "/samples/medical-claim.pdf", notes: ["Metadata removed", "Safe copy ready"], metadata: [{ label: "Title", value: "Synthetic Medical Claim" }, { label: "Author", value: "Example Clinic" }, { label: "Subject", value: "Demo claim fixture" }] },
+      { name: "board-packet.pdf", size: 660000, url: "/samples/board-packet.pdf", notes: ["Needs review", "Metadata removed"], metadata: [{ label: "Title", value: "Synthetic Board Packet" }, { label: "Author", value: "Sample Board Secretary" }, { label: "Keywords", value: "strategy, private, demo" }] }
     ]
   }
 ];
@@ -437,6 +444,7 @@ function App() {
                 </button>
               ))}
             </div>
+            <ChangeSummary file={previewFile} />
             {previewFile.fileType === "image" && (
               <ImageRedactionTools file={previewFile} onApply={updateCleanFile} />
             )}
@@ -532,6 +540,49 @@ function PreviewPane({ file, variant }: { file: CleanFile; variant: "before" | "
   );
 }
 
+function ChangeSummary({ file }: { file: CleanFile }) {
+  const changes = getChangeSummary(file);
+
+  return (
+    <section className="change-summary" aria-label="What changed">
+      <div>
+        <p className="section-label">What changed</p>
+        <h3>{changes.title}</h3>
+        <p>{changes.description}</p>
+      </div>
+      <div className="change-columns">
+        <article>
+          <strong>Before</strong>
+          <ul>
+            {changes.before.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </article>
+        <article>
+          <strong>After</strong>
+          <ul>
+            {changes.after.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </article>
+      </div>
+      <div className="metadata-table">
+        <strong>Detected metadata before cleaning</strong>
+        {file.metadata.length ? (
+          <dl>
+            {file.metadata.map((item) => (
+              <div key={`${item.label}-${item.value}`}>
+                <dt>{item.label}</dt>
+                <dd>{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <p>No readable metadata was detected in this browser session.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function ImageRedactionTools({ file, onApply }: { file: CleanFile; onApply: (file: CleanFile) => void }) {
   const [draftRegions, setDraftRegions] = useState<RedactionRegion[]>(file.redactions);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
@@ -602,6 +653,60 @@ function ImageRedactionTools({ file, onApply }: { file: CleanFile; onApply: (fil
       </div>
     </section>
   );
+}
+
+function getChangeSummary(file: CleanFile) {
+  const baseImageBefore = file.kind === "photos"
+    ? ["Original pixels kept for review", "Embedded photo metadata may include GPS, device, app, dates, and thumbnails"]
+    : ["Original screenshot pixels kept for review", "Any selected private areas are still visible until redactions are applied"];
+
+  if (file.fileType === "image") {
+    const after = ["Re-exported as a fresh PNG from the browser canvas", "Original embedded metadata is not copied into the cleaned file"];
+    if (file.redactions.length) {
+      after.push(`${file.redactions.length} selected area${file.redactions.length > 1 ? "s are" : " is"} permanently blacked out`);
+    } else if (file.kind === "screenshots") {
+      after.push("No visual redactions applied yet");
+    }
+
+    return {
+      title: file.kind === "photos" ? "Location and camera data removed" : "Screenshot cleaned with selected marks",
+      description: file.redactions.length
+        ? "The after file is a new image with your selected redaction boxes burned in."
+        : "The after file is a new export. If the image looks the same, the change is metadata removal rather than pixel editing.",
+      before: baseImageBefore,
+      after
+    };
+  }
+
+  if (file.fileType === "pdf") {
+    const originalPages = file.pageCount ?? file.keptPages?.length ?? 1;
+    const keptPages = file.keptPages ?? makePageList(originalPages);
+    const removedPages = originalPages - keptPages.length;
+    const after = [
+      "PDF rewritten into a new browser-generated document",
+      "Title, author, subject, creator, producer, keywords, and modified date replaced"
+    ];
+    if (removedPages > 0) after.push(`${removedPages} page${removedPages > 1 ? "s" : ""} removed; kept pages ${keptPages.join(", ")}`);
+    if (file.redactions.length) after.push(`${file.redactions.length} redaction block${file.redactions.length > 1 ? "s" : ""} drawn into the cleaned PDF`);
+    if (!file.redactions.length && removedPages === 0) after.push("No page removals or visual redactions applied yet");
+
+    return {
+      title: "PDF metadata and selected changes reviewed",
+      description: "Metadata cleanup is automatic. Page removal and redaction blocks update after you apply the PDF changes.",
+      before: [
+        `${originalPages} page${originalPages > 1 ? "s" : ""} in the original PDF`,
+        "Original document metadata may include author, app, creation details, edit history, and annotations"
+      ],
+      after
+    };
+  }
+
+  return {
+    title: "Cleaned file prepared",
+    description: "This file type can be tracked and downloaded, but browser preview is limited.",
+    before: ["Original file selected"],
+    after: ["Cleaned output prepared where supported"]
+  };
 }
 
 function PdfTools({ file, onApply }: { file: CleanFile; onApply: (file: CleanFile) => void }) {
@@ -678,6 +783,7 @@ async function makeResult(file: File, kind: TaskId, offset: number): Promise<Cle
   const url = URL.createObjectURL(file);
   const fileType = getFileType(file.name, file.type);
   const pageCount = fileType === "pdf" ? await getPdfPageCount(url) : undefined;
+  const metadata = await detectMetadata(file, url, fileType);
   const outputUrl = await createCleanedOutput(url, fileType, kind, file.name);
   return {
     id: Date.now() + offset,
@@ -692,7 +798,8 @@ async function makeResult(file: File, kind: TaskId, offset: number): Promise<Cle
     fileType,
     redactions: [],
     pageCount,
-    keptPages: pageCount ? makePageList(pageCount) : undefined
+    keptPages: pageCount ? makePageList(pageCount) : undefined,
+    metadata
   };
 }
 
@@ -714,7 +821,8 @@ async function makeSampleResult(sample: SampleFile, kind: TaskId, offset: number
     fileType,
     redactions: [],
     pageCount,
-    keptPages: pageCount ? makePageList(pageCount) : undefined
+    keptPages: pageCount ? makePageList(pageCount) : undefined,
+    metadata: sample.metadata
   };
 }
 
@@ -722,6 +830,47 @@ async function createCleanedOutput(sourceUrl: string, fileType: CleanFile["fileT
   if (fileType === "image") return cleanImage(sourceUrl, kind, []);
   if (fileType === "pdf") return cleanPdf(sourceUrl, fileName);
   return sourceUrl;
+}
+
+async function detectMetadata(file: File, sourceUrl: string, fileType: CleanFile["fileType"]): Promise<MetadataItem[]> {
+  if (fileType === "image") {
+    try {
+      const exifr = await import("exifr");
+      const parsed = await exifr.parse(file, {
+        gps: true,
+        tiff: true,
+        exif: true,
+        pick: ["Make", "Model", "Software", "DateTimeOriginal", "CreateDate", "ModifyDate", "latitude", "longitude", "ImageWidth", "ImageHeight", "Orientation"]
+      });
+      return metadataFromRecord(parsed);
+    } catch {
+      return [];
+    }
+  }
+
+  if (fileType === "pdf") {
+    return getPdfMetadata(sourceUrl);
+  }
+
+  return [];
+}
+
+function metadataFromRecord(record: Record<string, unknown> | undefined): MetadataItem[] {
+  if (!record) return [];
+  return Object.entries(record)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .map(([label, value]) => ({
+      label: humanizeMetadataLabel(label),
+      value: value instanceof Date ? value.toLocaleString() : String(value)
+    }));
+}
+
+function humanizeMetadataLabel(label: string) {
+  return label
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/^Gps/i, "GPS")
+    .replace(/^gps/i, "GPS")
+    .replace(/^./, (letter) => letter.toUpperCase());
 }
 
 async function cleanImage(sourceUrl: string, kind: TaskId, redactions: RedactionRegion[]) {
@@ -799,6 +948,25 @@ async function getPdfPageCount(sourceUrl: string) {
   const sourceBytes = await fetch(sourceUrl).then((response) => response.arrayBuffer());
   const pdf = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
   return pdf.getPageCount();
+}
+
+async function getPdfMetadata(sourceUrl: string): Promise<MetadataItem[]> {
+  const { PDFDocument } = await import("pdf-lib");
+  const sourceBytes = await fetch(sourceUrl).then((response) => response.arrayBuffer());
+  const pdf = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const fields: Array<[string, string | undefined]> = [
+    ["Title", pdf.getTitle()],
+    ["Author", pdf.getAuthor()],
+    ["Subject", pdf.getSubject()],
+    ["Creator", pdf.getCreator()],
+    ["Producer", pdf.getProducer()],
+    ["Keywords", pdf.getKeywords()],
+    ["Creation date", pdf.getCreationDate()?.toLocaleString()],
+    ["Modified date", pdf.getModificationDate()?.toLocaleString()]
+  ];
+  return fields
+    .filter(([, value]) => value)
+    .map(([label, value]) => ({ label, value: value ?? "" }));
 }
 
 function normalizeRegion(start: { x: number; y: number }, end: { x: number; y: number }): Omit<RedactionRegion, "id"> {
