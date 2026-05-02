@@ -155,7 +155,9 @@ function App() {
   const [toast, setToast] = useState("");
   const [previewFile, setPreviewFile] = useState<CleanFile | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("compare");
+  const [recentIds, setRecentIds] = useState<number[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLElement>(null);
 
   const task = tasks.find((item) => item.id === activeTask) ?? tasks[0];
   const preset = task.presets.find((item) => item.id === selectedPreset) ?? task.presets[0];
@@ -205,8 +207,7 @@ function App() {
     void Promise.all(Array.from(files).map((file, index) => makeResult(file, task.id, index))).then((nextFiles) => {
       setResults((current) => [...nextFiles, ...current]);
       setIsProcessing(false);
-      setToast(`${nextFiles.length} cleaned file${nextFiles.length > 1 ? "s" : ""} ready`);
-      window.setTimeout(() => setToast(""), 2600);
+      revealResults(nextFiles, `${nextFiles.length} cleaned file${nextFiles.length > 1 ? "s" : ""} added to results`);
     });
   };
 
@@ -218,8 +219,7 @@ function App() {
         ...current
       ]);
       setIsProcessing(false);
-      setToast("Sample files cleaned");
-      window.setTimeout(() => setToast(""), 2600);
+      revealResults(sampleResults, `${sampleResults.length} sample files added to results`);
     });
   };
 
@@ -266,6 +266,16 @@ function App() {
   const openPreview = (file: CleanFile, mode: PreviewMode = "compare") => {
     setPreviewMode(mode);
     setPreviewFile(file);
+  };
+
+  const revealResults = (files: CleanFile[], message: string) => {
+    setRecentIds(files.map((file) => file.id));
+    setToast(message);
+    window.setTimeout(() => setToast(""), 3200);
+    window.setTimeout(() => setRecentIds([]), 5200);
+    window.requestAnimationFrame(() => {
+      resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   };
 
   const updateCleanFile = (updatedFile: CleanFile) => {
@@ -366,9 +376,10 @@ function App() {
             <div className="sample-actions">
               {task.sampleFiles.map((sample, index) => (
                 <button key={sample.name} onClick={() => {
-                  void makeSampleResult(sample, task.id, index).then((sampleResult) => setResults((current) => [sampleResult, ...current]));
-                  setToast(`${sample.name} added`);
-                  window.setTimeout(() => setToast(""), 2600);
+                  void makeSampleResult(sample, task.id, index).then((sampleResult) => {
+                    setResults((current) => [sampleResult, ...current]);
+                    revealResults([sampleResult], `${sample.name} added to results`);
+                  });
                 }}>
                   <FileCheck size={16} />
                   {sample.name}
@@ -390,11 +401,12 @@ function App() {
           )}
         </section>
 
-        <section className="results-panel" aria-label="Cleaned files">
+        <section className="results-panel" aria-label="Cleaned files" ref={resultsRef}>
           <div className="results-head">
             <div>
               <p className="section-label">Results</p>
-              <h2>Ready to review</h2>
+              <h2>Ready to review {results.length > 0 && <span className="count-badge">{results.length}</span>}</h2>
+              {results.length > 0 && <p className="results-helper">Newest files appear first. Use the eye button to review before and after.</p>}
             </div>
             <button className="icon-button" onClick={clearAll} aria-label="Clear all results" title="Clear all"><X size={18} /></button>
           </div>
@@ -412,7 +424,7 @@ function App() {
           )}
           <div className="result-list">
             {visibleResults.map((file) => (
-              <article className="result-row" key={file.id}>
+              <article className={`result-row ${recentIds.includes(file.id) ? "recent" : ""}`} key={file.id}>
                 <div>
                   <strong>{file.name}</strong>
                   <span>{file.size} • {file.changed}</span>
@@ -444,13 +456,19 @@ function App() {
                 </button>
               ))}
             </div>
-            <ChangeSummary file={previewFile} />
+            <div className="review-steps" aria-label="Review steps">
+              <span><strong>1</strong> Check metadata</span>
+              <span><strong>2</strong> Mark redactions</span>
+              <span><strong>3</strong> Compare</span>
+              <span><strong>4</strong> Download</span>
+            </div>
             {previewFile.fileType === "image" && (
               <ImageRedactionTools file={previewFile} onApply={updateCleanFile} />
             )}
             {previewFile.fileType === "pdf" && (
               <PdfTools file={previewFile} onApply={updateCleanFile} />
             )}
+            <ChangeSummary file={previewFile} />
             <div className={`preview-frame ${previewMode}`}>
               {previewMode === "compare" ? (
                 <>
