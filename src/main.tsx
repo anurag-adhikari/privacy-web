@@ -292,6 +292,13 @@ function App() {
     setPreviewFile(updatedFile);
   };
 
+  const prepareReview = () => {
+    void Promise.all(results.map((file) => prepareFileForActions(file, selectedActions))).then((preparedFiles) => {
+      setResults(preparedFiles);
+      setWorkflowStep("review");
+    });
+  };
+
   const toggleAction = (action: string) => {
     setSelectedActions((current) => current.includes(action) ? current.filter((item) => item !== action) : [...current, action]);
   };
@@ -429,7 +436,7 @@ function App() {
             </div>
             <div className="flow-actions">
               <button className="secondary" onClick={() => setWorkflowStep("start")}>Back</button>
-              <button className="primary" onClick={() => setWorkflowStep("review")}><Eye size={17} /> Review files</button>
+              <button className="primary" onClick={prepareReview}><Eye size={17} /> Review files</button>
             </div>
           </section>
         )}
@@ -448,6 +455,7 @@ function App() {
               <label><Search size={16} /><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter files" /></label>
               <label><ArrowDownAZ size={16} /><select value={sort} onChange={(event) => setSort(event.target.value as SortMode)}><option value="newest">Newest</option><option value="name">Name</option><option value="status">Status</option></select></label>
             </div>
+            {workflowStep === "export" && <ExportChecklist files={visibleResults} />}
             {isProcessing && <SkeletonRows />}
             {!isProcessing && !visibleResults.length && (
               <div className="empty-state">
@@ -503,11 +511,11 @@ function App() {
               <span><strong>3</strong> Compare</span>
               <span><strong>4</strong> Download</span>
             </div>
-            {previewFile.fileType === "image" && (
+            {previewFile.fileType === "image" && selectedActions.includes("redact") && (
               <ImageRedactionTools file={previewFile} onApply={updateCleanFile} />
             )}
-            {previewFile.fileType === "pdf" && (
-              <PdfTools file={previewFile} onApply={updateCleanFile} />
+            {previewFile.fileType === "pdf" && (selectedActions.includes("redact") || selectedActions.includes("pages")) && (
+              <PdfTools file={previewFile} onApply={updateCleanFile} enabledActions={selectedActions} />
             )}
             <ChangeSummary file={previewFile} />
             <div className={`preview-frame ${previewMode}`}>
@@ -598,6 +606,36 @@ function PreviewPane({ file, variant }: { file: CleanFile; variant: "before" | "
       )}
     </section>
   );
+}
+
+function ExportChecklist({ files }: { files: CleanFile[] }) {
+  return (
+    <section className="export-checklist" aria-label="Verified changes">
+      <div>
+        <p className="section-label">Verified</p>
+        <h3>Cleanup summary</h3>
+        <p>Use this checklist to confirm what happened before downloading.</p>
+      </div>
+      <div className="checklist-grid">
+        {files.map((file) => (
+          <article key={file.id}>
+            <strong><Check size={17} /> {file.name}</strong>
+            <ul>
+              {getVerificationItems(file).map((item) => <li key={item}><Check size={15} /> {item}</li>)}
+            </ul>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function getVerificationItems(file: CleanFile) {
+  const items = [...file.notes];
+  if (file.metadata.length) items.push(`${file.metadata.length} metadata field${file.metadata.length > 1 ? "s" : ""} detected before cleaning`);
+  if (file.fileType === "pdf" && file.redactions.length) items.push("Redacted pages exported as image-only pages");
+  if (file.outputUrl) items.push("Cleaned copy ready to download");
+  return [...new Set(items)];
 }
 
 function getActionOptions(taskId: TaskId) {
@@ -804,14 +842,27 @@ function getChangeSummary(file: CleanFile) {
   };
 }
 
-function PdfTools({ file, onApply }: { file: CleanFile; onApply: (file: CleanFile) => void }) {
+function PdfTools({ file, onApply, enabledActions }: { file: CleanFile; onApply: (file: CleanFile) => void; enabledActions: string[] }) {
   const [pages, setPages] = useState((file.keptPages ?? makePageList(file.pageCount ?? 1)).join(","));
   const [activePage, setActivePage] = useState(file.keptPages?.[0] ?? 1);
   const [draftRegions, setDraftRegions] = useState<RedactionRegion[]>(file.redactions);
+  const [pageImageUrl, setPageImageUrl] = useState("");
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [dragEnd, setDragEnd] = useState<{ x: number; y: number } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const activeRegion = dragStart && dragEnd ? normalizeRegion(dragStart, dragEnd) : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (file.sourceUrl && enabledActions.includes("redact")) {
+      void renderPdfPageImage(file.sourceUrl, activePage).then((url) => {
+        if (!cancelled) setPageImageUrl(url);
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [activePage, enabledActions, file.sourceUrl]);
 
   const pointFromEvent = (event: React.PointerEvent<HTMLDivElement>) => {
     const bounds = stageRef.current?.getBoundingClientRect();
@@ -823,17 +874,18 @@ function PdfTools({ file, onApply }: { file: CleanFile; onApply: (file: CleanFil
   };
 
   const apply = async () => {
-    const keptPages = parsePageList(pages, file.pageCount ?? 1);
-    const redactions = draftRegions.filter((region) => keptPages.includes(region.page ?? activePage));
-    const outputUrl = await cleanPdf(file.sourceUrl!, file.name, { keptPages, redactions });
+    const keptPages = enabledActions.includes("pages") ? parsePageList(pages, file.pageCount ?? 1) : makePageList(file.pageCount ?? 1);
+    const redactions = enabledActions.includes("redact") ? draftRegions.filter((region) => keptPages.includes(region.page ?? activePage)) : [];
+    const outputUrl = await cleanPdf(file.sourceUrl!, file.name, { keptPages, redactions, rewriteMetadata: enabledActions.includes("metadata") });
     onApply({
       ...file,
       outputUrl,
       keptPages,
       redactions,
       notes: [
-        `${keptPages.length} page${keptPages.length > 1 ? "s" : ""} kept`,
-        redactions.length ? `${redactions.length} block${redactions.length > 1 ? "s" : ""} redacted` : "Metadata stripped"
+        ...(enabledActions.includes("pages") ? [`${keptPages.length} page${keptPages.length > 1 ? "s" : ""} kept`] : []),
+        ...(redactions.length ? [`${redactions.length} block${redactions.length > 1 ? "s" : ""} redacted`] : []),
+        ...(enabledActions.includes("metadata") ? ["Metadata stripped"] : [])
       ]
     });
   };
@@ -844,21 +896,21 @@ function PdfTools({ file, onApply }: { file: CleanFile; onApply: (file: CleanFil
         <p className="section-label">PDF cleanup</p>
         <span>Choose pages to keep, then drag boxes on the preview for true redaction blocks.</span>
       </div>
-      <label className="page-input">
+      {enabledActions.includes("pages") && <label className="page-input">
         Pages to keep
         <input value={pages} onChange={(event) => {
           setPages(event.target.value);
           const parsed = parsePageList(event.target.value, file.pageCount ?? 1);
           if (!parsed.includes(activePage)) setActivePage(parsed[0] ?? 1);
         }} placeholder="1, 3-5" />
-      </label>
+      </label>}
       <label className="page-input">
         Page to mark
         <select value={activePage} onChange={(event) => setActivePage(Number(event.target.value))}>
           {parsePageList(pages, file.pageCount ?? 1).map((page) => <option value={page} key={page}>Page {page}</option>)}
         </select>
       </label>
-      <div
+      {enabledActions.includes("redact") && <div
         ref={stageRef}
         className="pdf-redaction-stage"
         onPointerDown={(event) => {
@@ -886,10 +938,10 @@ function PdfTools({ file, onApply }: { file: CleanFile; onApply: (file: CleanFil
           setDragEnd(null);
         }}
       >
-        <iframe title={`Mark page ${activePage} of ${file.name}`} src={`${file.sourceUrl}#page=${activePage}`} />
+        {pageImageUrl ? <img src={pageImageUrl} alt={`Page ${activePage} of ${file.name}`} draggable={false} /> : <div className="pdf-page-proxy"><strong>Rendering page {activePage}</strong></div>}
         {draftRegions.filter((region) => region.page === activePage).map((region) => <span key={region.id} className="redaction-box" style={regionStyle(region)} />)}
         {activeRegion && <span className="redaction-box drafting" style={regionStyle({ ...activeRegion, page: activePage, id: -1 })} />}
-      </div>
+      </div>}
       <div className="tool-actions">
         <button className="secondary" onClick={() => setDraftRegions([])}>Clear marks</button>
         <button className="primary" onClick={() => void apply()}><FileText size={17} /> Apply PDF changes</button>
@@ -975,6 +1027,40 @@ async function createCleanedOutput(sourceUrl: string, fileType: CleanFile["fileT
   return sourceUrl;
 }
 
+async function prepareFileForActions(file: CleanFile, actions: string[]): Promise<CleanFile> {
+  const keptPages = file.fileType === "pdf" && actions.includes("pages") ? (file.keptPages ?? makePageList(file.pageCount ?? 1)) : makePageList(file.pageCount ?? 1);
+  const redactions = actions.includes("redact") ? file.redactions : [];
+  let outputUrl = file.sourceUrl;
+
+  if (file.fileType === "image" && (actions.includes("metadata") || redactions.length)) {
+    outputUrl = await cleanImage(file.sourceUrl!, file.kind, redactions);
+  }
+
+  if (file.fileType === "pdf" && (actions.includes("metadata") || actions.includes("pages") || redactions.length)) {
+    outputUrl = await cleanPdf(file.sourceUrl!, file.name, {
+      keptPages,
+      redactions,
+      rewriteMetadata: actions.includes("metadata")
+    });
+  }
+
+  return {
+    ...file,
+    outputUrl,
+    redactions,
+    keptPages: file.fileType === "pdf" ? keptPages : file.keptPages,
+    notes: buildActionNotes(file, actions, keptPages, redactions)
+  };
+}
+
+function buildActionNotes(file: CleanFile, actions: string[], keptPages: number[], redactions: RedactionRegion[]) {
+  const notes: string[] = [];
+  if (actions.includes("metadata")) notes.push("Metadata stripped");
+  if (redactions.length) notes.push(`${redactions.length} block${redactions.length > 1 ? "s" : ""} redacted`);
+  if (file.fileType === "pdf" && actions.includes("pages")) notes.push(`${keptPages.length} page${keptPages.length > 1 ? "s" : ""} kept`);
+  return notes.length ? notes : ["No changes selected"];
+}
+
 async function detectMetadata(file: File, sourceUrl: string, fileType: CleanFile["fileType"]): Promise<MetadataItem[]> {
   if (fileType === "image") {
     try {
@@ -1050,40 +1136,103 @@ function loadImage(sourceUrl: string) {
   });
 }
 
-async function cleanPdf(sourceUrl: string, fileName: string, options: { keptPages?: number[]; redactions?: RedactionRegion[] } = {}) {
-  const { PDFDocument, rgb } = await import("pdf-lib");
+async function cleanPdf(sourceUrl: string, fileName: string, options: { keptPages?: number[]; redactions?: RedactionRegion[]; rewriteMetadata?: boolean } = {}) {
+  const { PDFDocument } = await import("pdf-lib");
   const sourceBytes = await fetch(sourceUrl).then((response) => response.arrayBuffer());
   const original = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
   const cleaned = await PDFDocument.create();
   const keptPages = options.keptPages ?? makePageList(original.getPageCount());
-  const copiedPages = await cleaned.copyPages(original, keptPages.map((page) => page - 1));
-  copiedPages.forEach((page) => {
-    cleaned.addPage(page);
-  });
-  cleaned.setTitle(`${fileName} cleaned`);
-  cleaned.setAuthor("Privacy Cleaner");
-  cleaned.setSubject("Cleaned browser-side copy");
-  cleaned.setCreator("Privacy Cleaner");
-  cleaned.setProducer("Privacy Cleaner");
-  cleaned.setKeywords(["cleaned", "privacy"]);
-  cleaned.setModificationDate(new Date());
-  cleaned.getPages().forEach((page, pageIndex) => {
-    const { width, height } = page.getSize();
-    const originalPageNumber = keptPages[pageIndex];
-    options.redactions?.filter((region) => !region.page || region.page === originalPageNumber).forEach((region) => {
-      page.drawRectangle({
-        x: region.x * width,
-        y: height - (region.y + region.height) * height,
-        width: region.width * width,
-        height: region.height * height,
-        color: rgb(0, 0, 0),
-        opacity: 1
-      });
+  const redactions = options.redactions ?? [];
+
+  if (redactions.length) {
+    await addPagesWithTrueRedactions(cleaned, original, sourceBytes, keptPages, redactions);
+  } else {
+    const copiedPages = await cleaned.copyPages(original, keptPages.map((page) => page - 1));
+    copiedPages.forEach((page) => {
+      cleaned.addPage(page);
     });
-  });
+  }
+
+  if (options.rewriteMetadata ?? true) {
+    cleaned.setTitle(`${fileName} cleaned`);
+    cleaned.setAuthor("Privacy Cleaner");
+    cleaned.setSubject("Cleaned browser-side copy");
+    cleaned.setCreator("Privacy Cleaner");
+    cleaned.setProducer("Privacy Cleaner");
+    cleaned.setKeywords(["cleaned", "privacy"]);
+    cleaned.setModificationDate(new Date());
+  }
   const bytes = await cleaned.save({ useObjectStreams: false });
   const pdfBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
   return URL.createObjectURL(new Blob([pdfBuffer], { type: "application/pdf" }));
+}
+
+async function addPagesWithTrueRedactions(
+  cleaned: import("pdf-lib").PDFDocument,
+  original: import("pdf-lib").PDFDocument,
+  sourceBytes: ArrayBuffer,
+  keptPages: number[],
+  redactions: RedactionRegion[]
+) {
+  const pdfjs = await import("pdfjs-dist");
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url).toString();
+  const rendered = await pdfjs.getDocument({ data: new Uint8Array(sourceBytes) }).promise;
+
+  for (const pageNumber of keptPages) {
+    const pageRedactions = redactions.filter((region) => !region.page || region.page === pageNumber);
+
+    if (!pageRedactions.length) {
+      const [copiedPage] = await cleaned.copyPages(original, [pageNumber - 1]);
+      cleaned.addPage(copiedPage);
+      continue;
+    }
+
+    const renderedPage = await rendered.getPage(pageNumber);
+    const scale = 2;
+    const viewport = renderedPage.getViewport({ scale });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const context = canvas.getContext("2d");
+    if (!context) continue;
+
+    await renderedPage.render({ canvas, canvasContext: context, viewport }).promise;
+    pageRedactions.forEach((region) => {
+      context.fillStyle = "#000";
+      context.fillRect(
+        region.x * canvas.width,
+        region.y * canvas.height,
+        region.width * canvas.width,
+        region.height * canvas.height
+      );
+    });
+
+    const originalSize = original.getPage(pageNumber - 1).getSize();
+    const image = await cleaned.embedPng(canvas.toDataURL("image/png"));
+    const page = cleaned.addPage([originalSize.width, originalSize.height]);
+    page.drawImage(image, {
+      x: 0,
+      y: 0,
+      width: originalSize.width,
+      height: originalSize.height
+    });
+  }
+}
+
+async function renderPdfPageImage(sourceUrl: string, pageNumber: number) {
+  const pdfjs = await import("pdfjs-dist");
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url).toString();
+  const sourceBytes = await fetch(sourceUrl).then((response) => response.arrayBuffer());
+  const rendered = await pdfjs.getDocument({ data: new Uint8Array(sourceBytes) }).promise;
+  const page = await rendered.getPage(pageNumber);
+  const viewport = page.getViewport({ scale: 2 });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  const context = canvas.getContext("2d");
+  if (!context) return "";
+  await page.render({ canvas, canvasContext: context, viewport }).promise;
+  return canvas.toDataURL("image/png");
 }
 
 async function getPdfPageCount(sourceUrl: string) {
