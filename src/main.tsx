@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   Clipboard,
+  Coffee,
   Download,
   Eraser,
   Eye,
@@ -143,6 +144,7 @@ const tasks: Task[] = [
 
 const initialResults: CleanFile[] = [];
 const storageKey = "privacy-cleaner-preferences";
+const supportUrl = "https://ko-fi.com/F1F71Z1K12";
 
 function App() {
   const [theme, setTheme] = useStoredState<Theme>("theme", "system");
@@ -350,6 +352,10 @@ function App() {
           <span>No tracking</span>
           <span>No data stored</span>
         </nav>
+        <a className="support-link" href={supportUrl} target="_blank" rel="noreferrer">
+          <Coffee size={16} />
+          Support
+        </a>
         <ThemeControl theme={theme} setTheme={setTheme} />
       </header>
 
@@ -360,6 +366,7 @@ function App() {
           <p className="lede">Privacy Cleaner gives every common sharing task one calm place: strip metadata, blur sensitive screen areas, redact PDFs, remove pages, and export safe copies.</p>
           <div className="hero-actions">
             <button className="primary" onClick={() => fileInputRef.current?.click()}><Upload size={18} /> Choose files</button>
+            <a className="secondary" href={supportUrl} target="_blank" rel="noreferrer"><Coffee size={18} /> Support me</a>
           </div>
           <p className="privacy-note"><ShieldCheck size={16} /> Drop files anywhere or paste a copied screenshot. The app detects photos, screenshots, and PDFs automatically.</p>
           <div className="example-grid" aria-label="Before and after examples">
@@ -574,6 +581,15 @@ function App() {
             <p>{body}</p>
           </article>
         ))}
+      </section>
+
+      <section className="support-band" aria-label="Support Privacy Cleaner">
+        <div>
+          <p className="section-label">Support</p>
+          <h2>Useful tools stay better with a little backing.</h2>
+          <p>Privacy Cleaner stays static, fast, and no-tracking by default. Ko-fi opens separately, so the app itself stays clean while giving people a simple way to help.</p>
+        </div>
+        <a className="primary" href={supportUrl} target="_blank" rel="noreferrer"><Coffee size={18} /> Support me on Ko-fi</a>
       </section>
 
       <section className="faq">
