@@ -13,9 +13,7 @@ import {
   FileCheck,
   FileText,
   Image,
-  Keyboard,
   Moon,
-  RotateCcw,
   Search,
   ShieldCheck,
   Sparkles,
@@ -347,7 +345,7 @@ function App() {
             <small>Safe Share Tools</small>
           </span>
         </a>
-        <nav aria-label="Privacy promises">
+        <nav aria-label="Privacy promises" className="privacy-promises">
           <span>No account</span>
           <span>No tracking</span>
           <span>No data stored</span>
@@ -359,49 +357,22 @@ function App() {
         <ThemeControl theme={theme} setTheme={setTheme} />
       </header>
 
-      <section className="hero">
-        <div>
-          <p className="eyebrow"><Sparkles size={16} /> Clean files before sharing</p>
-          <h1>Remove private details from photos, screenshots, and PDFs.</h1>
-          <p className="lede">Privacy Cleaner gives every common sharing task one calm place: strip metadata, blur sensitive screen areas, redact PDFs, remove pages, and export safe copies.</p>
-          <div className="hero-actions">
-            <button className="primary" onClick={() => fileInputRef.current?.click()}><Upload size={18} /> Choose files</button>
-            <a className="secondary" href={supportUrl} target="_blank" rel="noreferrer"><Coffee size={18} /> Support me</a>
-          </div>
-          <p className="privacy-note"><ShieldCheck size={16} /> Drop files anywhere or paste a copied screenshot. The app detects photos, screenshots, and PDFs automatically.</p>
-          <div className="example-grid" aria-label="Before and after examples">
-            {[
-              ["Photo metadata", "GPS + camera data", "Fresh PNG without EXIF"],
-              ["Screenshot redaction", "Private token visible", "Marked area blacked out"],
-              ["PDF sharing", "All pages + metadata", "Kept pages + cleaned metadata"]
-            ].map(([title, before, after]) => (
-              <article key={title}>
-                <strong>{title}</strong>
-                <div><span>Before</span><p>{before}</p></div>
-                <div><span>After</span><p>{after}</p></div>
-              </article>
-            ))}
-          </div>
-        </div>
-        <div className="preview-panel" aria-label="Cleaning workflow preview">
-          <div className="preview-toolbar"><span></span><span></span><span></span></div>
-          <div className="preview-file"><FileCheck /><span>vacation-photo.jpg</span><strong>GPS removed</strong></div>
-          <div className="preview-file"><Eraser /><span>dashboard-shot.png</span><strong>3 areas hidden</strong></div>
-          <div className="preview-file"><FileText /><span>contract.pdf</span><strong>2 pages removed</strong></div>
-        </div>
-      </section>
-
-      <section className="flow-shell" aria-label="Guided privacy cleaning flow">
-        <div className="flow-steps">
+      <section className="flow-shell focused-flow" aria-label="Guided privacy cleaning flow">
+        <div className="breadcrumb-steps" aria-label="Current step">
           {[
             ["start", "Add files"],
             ["choose", "Choose actions"],
             ["review", "Review and edit"],
             ["export", "Export"]
           ].map(([step, label], index) => (
-            <button key={step} className={workflowStep === step ? "active" : ""} onClick={() => setWorkflowStep(step as WorkflowStep)}>
+            <button
+              key={step}
+              className={workflowStep === step ? "active" : ""}
+              onClick={() => setWorkflowStep(step as WorkflowStep)}
+              aria-current={workflowStep === step ? "step" : undefined}
+            >
               <strong>{index + 1}</strong>
-              {label}
+              <span>{label}</span>
             </button>
           ))}
         </div>
@@ -410,9 +381,9 @@ function App() {
           <section className="tool-surface flow-panel">
           <div className="tool-heading">
             <div>
-              <p className="section-label">Start</p>
-              <h2>Add files and let Privacy Cleaner route them.</h2>
-              <p>Drop files anywhere, choose from your device, or try synthetic samples. File type detection sends images and PDFs to the right next step.</p>
+              <p className="section-label"><Sparkles size={15} /> Clean files before sharing</p>
+              <h1>Remove private details before you share.</h1>
+              <p>Start with photos, screenshots, or PDFs. Privacy Cleaner routes the file and shows the next step only when it is needed.</p>
             </div>
             <span className="status-badge"><Check size={15} /> Local-first flow</span>
           </div>
@@ -421,13 +392,13 @@ function App() {
             <input ref={fileInputRef} type="file" multiple accept="image/*,application/pdf" onChange={(event) => addFiles(event.target.files)} />
             <Upload size={28} />
             <strong>Drop files here or choose from your device</strong>
-            <span>Photos, screenshots, and PDFs are sorted automatically.</span>
+            <span>You can also paste a copied screenshot.</span>
           </div>
 
           <div className="sample-strip" aria-label={`${task.name} sample files`}>
             <div>
-              <p className="section-label">Samples</p>
-              <span>Pick a sample set to see the full guided flow.</span>
+              <p className="section-label">Try it quickly</p>
+              <span>Use one sample set if you want to see the flow without adding your own file.</span>
             </div>
             <div className="sample-actions">
               {tasks.map((item) => (
@@ -569,44 +540,6 @@ function App() {
         </div>
       )}
 
-      <section className="trust-grid">
-        {[
-          ["Clear limits", "Browser-only tools can clean common metadata and prepare review flows. Sensitive legal or medical redactions should be checked before sending."],
-          ["Transparent processing", "The static app has no login, ads, or analytics by default. Production adapters can stay local-first or use a worker only when a user asks."],
-          ["Batch friendly", "Recent presets, sorting, filters, result rows, and download actions are built for many files instead of one-off demos."],
-          ["Accessible by design", "Controls use semantic buttons, visible focus states, keyboard shortcuts, contrast-aware themes, and plain-English labels."]
-        ].map(([title, body]) => (
-          <article key={title}>
-            <h3>{title}</h3>
-            <p>{body}</p>
-          </article>
-        ))}
-      </section>
-
-      <section className="support-band" aria-label="Support Privacy Cleaner">
-        <div>
-          <p className="section-label">Support</p>
-          <h2>Useful tools stay better with a little backing.</h2>
-          <p>Privacy Cleaner stays static, fast, and no-tracking by default. Ko-fi opens separately, so the app itself stays clean while giving people a simple way to help.</p>
-        </div>
-        <a className="primary" href={supportUrl} target="_blank" rel="noreferrer"><Coffee size={18} /> Support me on Ko-fi</a>
-      </section>
-
-      <section className="faq">
-        <div>
-          <p className="section-label">FAQ</p>
-          <h2>Privacy without drama.</h2>
-        </div>
-        <details open><summary>Does this need an account?</summary><p>No. The core product is designed for static hosting and browser-based sessions.</p></details>
-        <details><summary>What can be cleaned?</summary><p>Photos, screenshots, and PDFs. The product covers metadata removal, screenshot masking, PDF redaction workflows, page removal, and export checks.</p></details>
-        <details><summary>Is PDF redaction automatic?</summary><p>The UI supports true-redaction workflows, but users should review output before sharing. Hidden text must be removed, not just covered visually.</p></details>
-      </section>
-
-      <div className="sticky-bar">
-        <div><Keyboard size={16} /> Drop files anywhere or paste a screenshot</div>
-        <button className="ghost" onClick={clearAll}><RotateCcw size={16} /> Reset</button>
-        <button className="primary" onClick={() => fileInputRef.current?.click()}><Upload size={17} /> Clean files</button>
-      </div>
       {toast && <div className="toast"><Clipboard size={16} /> {toast}</div>}
     </main>
   );
