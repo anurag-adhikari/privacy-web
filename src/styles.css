@@ -145,11 +145,13 @@ h3 { font-size: 19px; margin-bottom: 8px; }
 .empty-state { display: grid; place-items: center; text-align: center; gap: 9px; min-height: 260px; padding: 28px; color: var(--muted); border: 1px dashed var(--line); border-radius: 8px; background: var(--surface-2); }
 .empty-state strong { color: var(--text); font-size: 18px; }
 .result-list { display: grid; gap: 10px; }
-.result-row { padding: 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
+.result-row { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
 .result-row.recent { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 34%, transparent); animation: recentPulse 1.7s ease-in-out 2; }
-.result-row div { min-width: 0; flex: 1; }
+.result-info { min-width: 0; flex: 1; }
 .result-row strong, .result-row span, .result-row small { display: block; overflow-wrap: anywhere; }
 .result-row span, .result-row small { color: var(--muted); margin-top: 3px; }
+.result-actions { display: flex; flex: 0 0 auto; gap: 8px; align-items: center; }
+.small-action { min-height: 40px; padding: 0 12px; white-space: nowrap; }
 .pill.clean { color: var(--good); }
 .pill.warning { color: var(--warn); }
 .skeleton-wrap { display: grid; gap: 10px; margin-bottom: 12px; }
@@ -243,7 +245,9 @@ h3 { font-size: 19px; margin-bottom: 8px; }
   .breadcrumb-steps { display: grid; grid-template-columns: 1fr; border-radius: 8px; }
   .breadcrumb-steps button { justify-content: flex-start; }
   .breadcrumb-steps button + button::before { display: none; }
-  .tool-heading, .filters, .result-row, .flow-actions { align-items: stretch; flex-direction: column; }
+  .tool-heading, .filters, .result-row, .result-actions, .flow-actions { align-items: stretch; flex-direction: column; }
+  .result-actions { width: 100%; }
+  .small-action { width: 100%; white-space: normal; }
   .theme-control { width: fit-content; }
   .modal-actions { flex-direction: column-reverse; align-items: stretch; }
   .compare-controls { width: 100%; }

@@ -471,14 +471,22 @@ function App() {
             <div className="result-list">
               {visibleResults.map((file) => (
                 <article className={`result-row ${recentIds.includes(file.id) ? "recent" : ""}`} key={file.id}>
-                  <div>
+                  <div className="result-info">
                     <strong>{file.name}</strong>
                     <span>{file.size} • {file.changed}</span>
                     <small>{file.notes.join(" · ")}</small>
                   </div>
                   <span className={`pill ${file.status}`}>{file.status}</span>
-                  <button className="icon-button" onClick={() => openPreview(file)} aria-label={`Preview ${file.name}`} title="Preview before and after"><Eye size={17} /></button>
-                  <button className="icon-button" onClick={() => void downloadFile(file)} aria-label={`Download ${file.name}`} title="Download"><Download size={17} /></button>
+                  <div className="result-actions">
+                    <button className="primary small-action" onClick={() => openPreview(file)} aria-label={`Review ${file.name}`}>
+                      <Eye size={17} />
+                      Review file
+                    </button>
+                    <button className="secondary small-action" onClick={() => void downloadFile(file)} aria-label={`Download cleaned copy of ${file.name}`}>
+                      <Download size={17} />
+                      Download clean copy
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>
